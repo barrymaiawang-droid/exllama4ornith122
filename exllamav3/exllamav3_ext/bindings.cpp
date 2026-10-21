@@ -37,6 +37,7 @@
 #include "quant/exl3_moe_coop.cuh"
 
 #include "generator/strings.h"
+#include "generator/staging.h"
 #include "generator/sampling_basic.cuh"
 #include "generator/sampling_extra.cuh"
 #include "generator/gumbel.cuh"
@@ -299,6 +300,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("paged_kv_cache_update", &paged_kv_cache_update, "paged_kv_cache_update");
 
     m.def("partial_strings_match", &partial_strings_match, "partial_strings_match");
+    m.def("generator_stage_decode", &generator_stage_decode, "generator_stage_decode");
     m.def("count_match_tensor", &count_match_tensor, "count_match_tensor");
 
     m.def("quant_cache_cont", &quant_cache_cont, "quant_cache_cont");
