@@ -475,6 +475,7 @@ class Model(Model_TPMixin, Model_LSMixin):
         max_batch_size: int = 1,
         tp_options: dict | None = None,
         autosplit_no_forward: bool = False,
+        draft_model: Model | None = None,
     ):
         """
         Load model, generator function. For regular function, call load() with the same arguments
@@ -564,6 +565,11 @@ class Model(Model_TPMixin, Model_LSMixin):
 
         :param autosplit_no_forward:
             For debug purposes, skip reference forward pass during autosplit load.
+
+        :param draft_model:
+            (optional, autosplit only) Draft model that will verify against this model, loaded first. When it
+            taps hidden states of this model (DFlash), the copies of the tapped layers' states stay resident on
+            their devices for the whole forward, and the split budgets for them.
         """
 
         # The pass is there to hand back VRAM held by garbage from an earlier model. With nothing
@@ -652,6 +658,7 @@ class Model(Model_TPMixin, Model_LSMixin):
                         max_batch_size,
                         self.cache_weakrefs,
                         autosplit_no_forward,
+                        draft_model.draft_verifier_params.get("export_state_layers") if draft_model else None,
                     )
                     self.output_device = self.modules[-1].device
 
