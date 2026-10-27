@@ -37,8 +37,19 @@ namespace exl3_route_trace
 
 enum Kind : int32_t
 {
-    KIND_GEMM  = 0,   // exl3_gemm_gr (single matrix)
-    KIND_MGEMM = 1    // exl3_mgemm_gr (multi-matrix / batched pointer tables)
+    KIND_GEMM            = 0,   // exl3_gemm_gr (single matrix)
+    KIND_MGEMM           = 1,   // exl3_mgemm_gr (multi-matrix / batched pointer tables)
+    // The routed-expert tiers do not pass through the two entry points above; without these
+    // kinds a route table shows every projection of a layer except its experts
+    KIND_MOE_FUSED       = 2,   // exl3_moe: the fused expert kernel (block_sparse_mlp's fused tier,
+                                // any batch above MAX_BSZN and prefill); m = tokens, k = hidden,
+                                // n = intermediate, slots = active experts in this launch's row
+                                // range (-1: unknown, all fused), route = row tile (16 / 32 / 64)
+    KIND_MOE_DECODE_RDNA = 3,   // exl3_rocm_moe_decode: the RDNA bsz <= MAX_BSZN decode tier (GEMV
+                                // family, M == 1 bodies); m = tokens, k = hidden, n = intermediate,
+                                // slots = tokens * top_k, route = 0
+    KIND_MOE_COOP        = 4    // exl3_moe_coop_run: the cooperative bsz <= MAX_BSZN decode tier (CUDA,
+                                // and the RDNA fallback when moe_decode declines); fields as kind 3
 };
 
 enum Flags : int32_t
@@ -59,7 +70,8 @@ struct Record
     int32_t k;             // input width
     int32_t n;             // output width (mgemm: C.size(2), the slot width)
     int32_t slots;         // mgemm: max(bszm_in, bszm_out); gemm: 1
-    int32_t tile_u16;      // trellis tile width in uint16 (16 * bits, + 8 for half rates)
+    int32_t tile_u16;      // trellis tile width in uint16 (16 * bits, + 8 for half rates); MoE
+                           // kinds: the gate / up width (the down width is not recorded)
     int32_t cb;            // codebook: 0 3inst, 1 mcg, 2 mul1
     int32_t flags;         // Flags
     int32_t force_shape;   // force_shape_idx argument

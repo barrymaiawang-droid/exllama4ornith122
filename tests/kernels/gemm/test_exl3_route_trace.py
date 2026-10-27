@@ -72,6 +72,19 @@ def test_field_order_matches_native_record(rt):
     assert native_fields == rt.FIELDS, "struct Record and FIELDS must list the same columns in the same order"
     for bit, name in rt.FLAG_NAMES:
         assert re.search(rf"FLAG_{name.upper()}\s*=\s*{bit}\b", src), f"FLAG_{name.upper()} = {bit} missing from the header"
+    native_kinds = {k: int(v) for k, v in re.findall(r"(KIND_\w+)\s*=\s*(\d+)", src)}
+    assert native_kinds == {k: getattr(rt, k) for k in native_kinds}, "the Python KIND_* constants must match the header"
+    assert set(native_kinds.values()) == set(rt.KIND_NAMES), "every native kind needs a name"
+
+
+def test_moe_tier_records_are_named(rt):
+    fused = rt.Record(rt.KIND_MOE_FUSED, 16, 3072, 1536, -1, 80, 2, 1 | 4, -1, 16)
+    decode = rt.Record(rt.KIND_MOE_DECODE_RDNA, 1, 3072, 1536, 8, 56, 2, 1 | 4 | 32, -1, 0)
+    coop = rt.Record(rt.KIND_MOE_COOP, 4, 3072, 1536, 32, 80, 2, 1 | 4, -1, 0)
+    assert fused.route_name == "moe_fused_tile_16" and decode.route_name == "rdna_moe_decode" and coop.route_name == "moe_coop_bszn"
+    assert decode.bits == 3.5 and "half_k" in decode.flag_names
+    table = rt.format_table(rt.summarize([fused, decode, coop]))
+    assert "moe_fused" in table and "moe_decode" in table and "moe_coop" in table
 
 
 def test_records_summary_and_table(rt):

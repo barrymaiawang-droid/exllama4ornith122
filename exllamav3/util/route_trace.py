@@ -21,7 +21,10 @@ snapshot() / summarize() / format_table() later. EXL3_ROUTE_TRACE_MAX (default 2
 bounds the record count; calls past it are counted in `dropped`, not stored.
 
 What a record is: one host-side entry-point call. A graph-captured call is recorded once, at
-capture time (flag GRAPH), and its replays are not calls. The kernels and their arithmetic are
+capture time (flag GRAPH), and its replays are not calls. The routed-expert tiers (the fused
+exl3_moe kernel, the RDNA moe_decode tier and the cooperative bszN tier) do not pass through
+the GEMM entry points and are recorded by their own entry points as kinds 2..4, so a route
+table of a MoE layer shows its experts' kernel family next to its dense projections. The kernels and their arithmetic are
 untouched by the trace; the only cost is host work per call while recording. The trace is not
 timing evidence in either state: a binary carrying it is a different binary from one without.
 """
@@ -33,7 +36,13 @@ from typing import Iterable, NamedTuple, Sequence
 
 KIND_GEMM = 0
 KIND_MGEMM = 1
-KIND_NAMES = {KIND_GEMM: "gemm", KIND_MGEMM: "mgemm"}
+KIND_MOE_FUSED = 2          # exl3_moe: fused expert kernel (bsz > MAX_BSZN and prefill); route = row tile
+KIND_MOE_DECODE_RDNA = 3    # exl3_rocm_moe_decode: RDNA bsz <= MAX_BSZN expert tier (GEMV family)
+KIND_MOE_COOP = 4           # exl3_moe_coop_run: cooperative bsz <= MAX_BSZN expert tier
+KIND_NAMES = {
+    KIND_GEMM: "gemm", KIND_MGEMM: "mgemm",
+    KIND_MOE_FUSED: "moe_fused", KIND_MOE_DECODE_RDNA: "moe_decode", KIND_MOE_COOP: "moe_coop",
+}
 
 FLAG_FP32 = 1
 FLAG_GRAPH = 2
@@ -109,6 +118,12 @@ def route_name(kind: int, route: int) -> str:
         if route == 93: return "rdna_multirow_mgemv"         # exl3_mgemv_multirow_try_launch
         if route == 0:  return "none_or_rdna_mgemv_m1"       # empty selection, or exl3_mgemv_try_launch
         if route >= 1:  return f"coop_mgemm_shape_{route}"
+    elif kind == KIND_MOE_FUSED:
+        return f"moe_fused_tile_{route}"                     # the fused kernel's row tile (16 / 32 / 64)
+    elif kind == KIND_MOE_DECODE_RDNA:
+        return "rdna_moe_decode"                             # M == 1 multi-row bodies, GEMV family
+    elif kind == KIND_MOE_COOP:
+        return "moe_coop_bszn"
     return f"route_{route}"
 
 

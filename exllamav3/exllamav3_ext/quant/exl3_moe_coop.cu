@@ -12,6 +12,7 @@
 #include "../util.cuh"
 #include "exl3_devctx.cuh"
 #include "exl3_moe_coop.cuh"
+#include "route_trace.h"
 #include "comp_units/exl3_moe_coop_instances.cuh"
 #include "bits_k.cuh"
 #define EXL3_MOE_COOP_DEFINE_ROT
@@ -328,6 +329,25 @@ void exl3_moe_coop_run
     else
         p.sh_gate_w = nullptr;
     exl3_moe_coop_launch(p, K_gu, K_d, cb, device, stream);
+
+    // Route trace (quant/route_trace.h): the cooperative decode tier as one record per call
+    exl3_route_trace::Trace& trace = exl3_route_trace::Trace::instance();
+    if (trace.enabled())
+    {
+        exl3_route_trace::Record r;
+        r.kind = exl3_route_trace::KIND_MOE_COOP;
+        r.m = p.bsz;
+        r.k = p.Hi;
+        r.n = p.I;
+        r.slots = slots;
+        r.tile_u16 = (int32_t) (K_gu * 16.0f + 0.5f);
+        r.cb = cb;
+        r.flags = exl3_route_trace::FLAG_FP32 | exl3_route_trace::FLAG_WEIGHTS
+                | ((r.tile_u16 % 16) != 0 ? exl3_route_trace::FLAG_HALF_K : 0);
+        r.force_shape = -1;
+        r.route = 0;
+        trace.record(r);
+    }
 }
 
 void exl3_moe_coop
