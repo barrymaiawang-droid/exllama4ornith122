@@ -1,5 +1,5 @@
 // =============================================================================
-// Multi-row GEMV for RDNA, single-matrix m = 1..16, multi-matrix m = 1..8
+// Multi-row GEMV for RDNA, single-matrix m = 1..16, multi-matrix m = 1..8 (16 opt-in)
 // =============================================================================
 //
 // The GEMV fast paths take m == 1 only; at m = 2..8 -- speculative-decoding
@@ -42,8 +42,11 @@
 //
 // Routing: exl3_gemm_gr and exl3_mgemm_gr call the two try_launch entry
 // points before the cooperative kernels, in and out of graph capture.
-// EXL3_GEMV_MAX_M defaults to 16 (1 disables multi-row calls); the multi-matrix
-// form remains capped at 8 and declines sliced mode.
+// EXL3_GEMV_MAX_M defaults to 16 (1 disables multi-row calls). The multi-matrix
+// form takes m <= EXL3_MGEMV_MAX_M (default 8; 16 enables the same two-group
+// scheme per slot, with (slot, group) counter partitions and the row offsets
+// applied on-device so the graph patch sites keep their base pointers) and
+// declines sliced mode. Weighted calls stay m == 1.
 //
 // Routing weights (the MoE down projection's weighted reduce):
 // at m == 1 the multi-matrix form takes weighted calls too, with the
@@ -68,6 +71,7 @@
 #include "exl3_mgemv_rdna.cuh"
 #include "exl3_gemv_kernel_rdna.cuh"
 #include "exl3_gemv_multirow_rdna.cuh"
+#include "../../quant/route_trace.h"
 
 #include <cstdlib>
 #include <mutex>
@@ -76,6 +80,14 @@ int exl3_gemv_max_m()
 {
     const char* env = std::getenv("EXL3_GEMV_MAX_M");
     if (!env) return 16;
+    int v = atoi(env);
+    return v < 1 ? 1 : (v > 16 ? 16 : v);
+}
+
+int exl3_mgemv_max_m()
+{
+    const char* env = std::getenv("EXL3_MGEMV_MAX_M");
+    if (!env) return 8;
     int v = atoi(env);
     return v < 1 ? 1 : (v > 16 ? 16 : v);
 }
@@ -658,7 +670,7 @@ void exl3_gemv_mr_dot_multi
                 exl3_gemv_mr_zero_epilogue<c_fp32>
                 (
                     pb->Cm, (int64_t) j * size_n, size_n, tile_n + t, lane,
-                    pb->seg_counters + j * n_segs0 + (tile_n + t) / 8,
+                    pb->seg_counters + (j * gridDim.z + blockIdx.z) * n_segs0 + (tile_n + t) / 8,
                     pb->red_counters + (tile_n + t) / 8, red_target, num_tokens
                 );
         }
@@ -668,10 +680,18 @@ void exl3_gemv_mr_dot_multi
     const int n_tiles_j = n_j / 16;
     if (tile_n >= n_tiles_j) return;   // block-uniform
 
+    // Row group (blockIdx.z): this slot's M rows from row_start, rows_valid of them real, as in
+    // the single-matrix kernel. One group at m <= 8 (and always for the weighted m == 1 form);
+    // two above. Each (slot, group) has its own output-arrival counters, and the offsets are
+    // applied here so the graph patch sites keep the base pointers
+    const int row_start = blockIdx.z * M;
+    const int rows_valid = MIN(M, size_m - row_start);
     void* Cb = c_list ? c_list[mat_index] : pb->Cm;
-    const int64_t row_off = c_list ? 0 : (int64_t) j * size_m * size_n;
     const int ldc = c_list ? n_j : size_n;
+    const int64_t row_off = (c_list ? 0 : (int64_t) j * size_m * size_n) + (int64_t) row_start * ldc;
     const int n_segs = size_n / 128;
+    int* seg_counters = pb->seg_counters + (j * gridDim.z + blockIdx.z) * n_segs;
+    const half* A_rows = A_had + ((int64_t) j * size_m + row_start) * size_k;
     if (M == 1 && weighted)   // launch-uniform; size_m == 1, no lists (entry point)
     {
         const half* weights = pb->weights;
@@ -679,20 +699,20 @@ void exl3_gemv_mr_dot_multi
         const int red_target = exl3_mgemv_packed_count(pb->indices, bszm, min_index, max_index);
         exl3_gemv_mr_body<bits, c_fp32, cb, WARPS_PER_BLOCK, M>
         (
-            A_had + (int64_t) j * size_m * size_k, size_k,
+            A_rows, size_k,
             (const uint16_t*) B_list[mat_index], size_k, n_tiles_j, tile_n,
-            Cb, row_off, ldc, size_m, (const half*) svh_list[mat_index],
-            pb->seg_counters + j * n_segs, warp_id, lane, core, tpb,
+            Cb, row_off, ldc, rows_valid, (const half*) svh_list[mat_index],
+            seg_counters, warp_id, lane, core, tpb,
             w_scale, pb->red_counters, red_target, size_n, num_tokens
         );
         return;
     }
     exl3_gemv_mr_body<bits, c_fp32, cb, WARPS_PER_BLOCK, M>
     (
-        A_had + (int64_t) j * size_m * size_k, size_k,
+        A_rows, size_k,
         (const uint16_t*) B_list[mat_index], size_k, n_tiles_j, tile_n,
-        Cb, row_off, ldc, size_m, (const half*) svh_list[mat_index],
-        pb->seg_counters + j * n_segs, warp_id, lane, core, tpb
+        Cb, row_off, ldc, rows_valid, (const half*) svh_list[mat_index],
+        seg_counters, warp_id, lane, core, tpb
     );
 }
 
@@ -854,8 +874,8 @@ bool exl3_mgemv_multirow_try_launch
     if (size_m < exl3_gemv_mr_min_m(size_n / 16) || size_m > exl3_gemv_max_m()) return false;
     if (!exl3_gemv_mr_k_ok(K, cb)) return false;
     if (size_k % 128 || size_n % 128) return false;
-    // Only the single-matrix kernel has row-group offsets/counter partitions.
-    if (size_m > 8) return false;
+    // Above 8 rows only when EXL3_MGEMV_MAX_M allows it (two row groups per slot, see the kernel)
+    if (size_m > exl3_mgemv_max_m()) return false;
     // Weighted calls (MoE down) at m == 1 with the mgemv epilogue; see the header
     const bool weighted = weights_ptr != nullptr;
     if (weighted && (size_m != 1 || !exl3_gemv_mr_weighted_enabled())) return false;
@@ -874,11 +894,13 @@ bool exl3_mgemv_multirow_try_launch
     if (!suh_ptr_ptr || !A_had_ptr || !svh_ptr_ptr) return false;
     int bszm = MAX(bszm_in, bszm_out);
     if (bszm < 1 || bszm > 128) return false;
-    if (bszm * (size_n / 128) > EXL3_MGEMV_SEG_COUNTERS) return false;
+    const int m_tile = exl3_gemv_mr_row_tile(size_m);
+    const int row_groups = CEIL_DIVIDE(size_m, m_tile);
+    if (bszm * row_groups * (size_n / 128) > EXL3_MGEMV_SEG_COUNTERS) return false;
     Exl3GemvMrParams* pb = exl3_gemv_mr_param_block(device, graph == nullptr);
     if (!pb) return false;
 
-    // 1. Rotation + patch sites
+    // 1. Rotation + patch sites (every row of every slot; the row groups split the dot kernel only)
     {
         int blocks = CEIL_DIVIDE(bszm * size_m * (size_k / 128) * 32, 256);
         hipLaunchKernelGGL
@@ -907,10 +929,9 @@ bool exl3_mgemv_multirow_try_launch
         // order of a single-token call on the same experts (bit-identical rows)
         const int bszm_rule = (num_tokens > 1 && bszm % num_tokens == 0) ? bszm / num_tokens : bszm;
         const int warps = exl3_gemv_mr_warps(size_k, n_tiles, bszm_rule);
-        const int m_tile = exl3_gemv_mr_row_tile(size_m);
         const int core = exl3_gemv_core_mode();
         const int tpb = exl3_gemv_tiles_tpb(core, device, n_tiles, bszm, warps);
-        dim3 grid(n_tiles / tpb, bszm);
+        dim3 grid(n_tiles / tpb, bszm, row_groups);
         dim3 block(warps * 32);
         size_t smem = exl3_gemv_mr_smem_bytes(warps, m_tile);
         LAUNCH_MR(exl3_gemv_mr_dot_multi, pb, B_ptr_ptr, svh_ptr_ptr, A_had_ptr,
@@ -1278,4 +1299,25 @@ void exl3_rocm_moe_decode
         sel_p, (const half*) weights.data_ptr(), (const half*) a_had.data_ptr(), out.data_ptr(), I, Ho, S, 0, bsz,
         S, top_k, (int) K_d, (int) cb_d, true, device, stream);
     cuda_check(cudaPeekAtLastError());
+
+    // Route trace (quant/route_trace.h): the decode tier as one record per call. K_gu is the
+    // pseudo width EXL3_HALF_BITS(k) for a k + 0.5 bpw layer
+    exl3_route_trace::Trace& trace = exl3_route_trace::Trace::instance();
+    if (trace.enabled())
+    {
+        exl3_route_trace::Record r;
+        r.kind = exl3_route_trace::KIND_MOE_DECODE_RDNA;
+        r.m = bsz;
+        r.k = Hi;
+        r.n = I;
+        r.slots = S;
+        const int k_gu = (int) K_gu;
+        r.tile_u16 = k_gu >= EXL3_HALF_BITS(1) ? 16 * (k_gu - EXL3_HALF_BITS(1) + 1) + 8 : 16 * k_gu;
+        r.cb = (int32_t) cb_gu;
+        r.flags = exl3_route_trace::FLAG_FP32 | exl3_route_trace::FLAG_WEIGHTS
+                | ((r.tile_u16 % 16) != 0 ? exl3_route_trace::FLAG_HALF_K : 0);
+        r.force_shape = -1;
+        r.route = 0;
+        trace.record(r);
+    }
 }
