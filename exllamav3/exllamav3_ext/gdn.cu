@@ -448,11 +448,18 @@ void mamba2_dt_op
 
 // Recurrent-state storage element: fp32, or fp16 for a half-size pool. The scan computes in fp32
 // (each thread's slice lives in registers for the whole pass) and converts on the one load and the
-// one store per pass, so fp16 storage rounds once per pass, not once per token
+// one store per pass, so fp16 storage rounds once per pass, not once per token. GDN speculative passes
+// and their replay are the exception: they round between tokens (ScanOperands::per_token_store),
+// because AR settles one token per pass and a verifier must not change the state it continues
 template <typename TS> __device__ __forceinline__ float state_ld(const TS* p) { return *p; }
 template <> __device__ __forceinline__ float state_ld<__half>(const __half* p) { return __half2float(*p); }
 template <typename TS> __device__ __forceinline__ void state_st(TS* p, float v) { *p = v; }
 template <> __device__ __forceinline__ void state_st<__half>(__half* p, float v) { *p = __float2half_rn(v); }
+
+// The conversion a store followed by a load performs, applied to a register-resident value: the
+// pool's storage boundary without touching memory (used by ScanOperands::per_token_store)
+template <typename TS> __device__ __forceinline__ float state_round(float v) { return v; }
+template <> __device__ __forceinline__ float state_round<__half>(float v) { return __half2float(__float2half_rn(v)); }
 
 #define REPLAY_MAX_JOBS 48
 struct ScanReplayJobBatch { ScanReplayJob jobs[REPLAY_MAX_JOBS]; int num_jobs; };
@@ -469,6 +476,7 @@ struct ScanOperands
     const float* D;
     int steps;
     int tstride;            // staged token rows between consecutive tokens (replay); 1 otherwise
+    bool per_token_store;   // GDN SCAN_SPEC/SCAN_REPLAY: round the slice through TS between tokens
 };
 
 template <int MODE, typename TS>
@@ -493,6 +501,11 @@ __device__ __forceinline__ bool resolve_scan_operands
 )
 {
     int bi = blockIdx.x;
+    // GDN AR settles one token per pass, so its pool rounds the state after every token. A speculative
+    // pass spans several tokens; to keep the committed state, the per-row outputs and the rewind replay
+    // on that same storage boundary, the slice is rounded between tokens instead of once per pass.
+    // In-place passes (prefill chunks, plain decode) and the other recurrences keep their behaviour.
+    op.per_token_store = (MODE == SCAN_SPEC || MODE == SCAN_REPLAY);
     if constexpr (MODE == SCAN_REPLAY)
     {
         if (bi >= jobs->num_jobs) return false;
@@ -704,6 +717,20 @@ __device__ __forceinline__ void scan_body
                 }
             }
             sh_dot2[bt][t] = v_out;
+
+            // Storage boundary between tokens: this token's output above used the unrounded fp32
+            // update of a rounded input state (exactly what a one-token AR pass computes), and the
+            // next token starts from what a store and reload would have left behind. The trailing
+            // final store already rounds the last state, so no extra conversion is taken after it.
+            if constexpr (!MAMBA2)
+            {
+                if (op.per_token_store && s + 1 < op.steps)
+                {
+                    #pragma unroll
+                    for (int e = 0; e < MAX_BTS; ++e)
+                        if (e < bts) st[e] = state_round<TS>(st[e]);
+                }
+            }
         }
         __syncthreads();
 
@@ -870,6 +897,17 @@ __device__ __forceinline__ void scan_body_128
                 v_out = v_out + sh_q_rd[e] * state;
             }
             sh_dot2[bt][t] = v_out;
+
+            // Same boundary as scan_body, GDN only: row t's output keeps the one-token AR arithmetic,
+            // the next row starts from the rounded state, and the trailing store rounds the last one
+            if constexpr (!CHANNELWISE)
+            {
+                if (op.per_token_store && s + 1 < op.steps)
+                {
+                    #pragma unroll
+                    for (int e = 0; e < BTS; ++e) st[e] = state_round<TS>(st[e]);
+                }
+            }
         }
         __syncthreads();
 
