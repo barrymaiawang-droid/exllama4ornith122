@@ -200,9 +200,9 @@ int exl3_gemm_gr
     }
 
 #if defined(USE_ROCM)
-    // RDNA: m = 1..8 take the multi-row fdot2 GEMV (rocm/quant/exl3_gemv_multirow_rdna.cu), in and out of graph
-    // capture, ahead of every other path. Half-integer rates go as the pseudo width EXL3_HALF_BITS(K)
-    if (force_shape_idx <= 0 && force_num_sms <= 0 && size_m >= 1 && size_m <= 8
+    // RDNA: m = 1..16 take the multi-row fdot2 GEMV (two <=8-row groups above m=8),
+    // in and out of graph capture. Half-integer rates use the pseudo width EXL3_HALF_BITS(K).
+    if (force_shape_idx <= 0 && force_num_sms <= 0 && size_m >= 1 && size_m <= 16
         && (!half_k || exl3_rocm_half_gemv_enabled()))
     {
         if (exl3_gemv_multirow_try_launch

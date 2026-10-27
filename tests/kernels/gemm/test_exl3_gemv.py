@@ -20,7 +20,7 @@ path (recognizable by its int8-activation error level), at K = max_k + 1 it does
 
 ROCm: ext.exl3_gemv is the RDNA GEMV (rocm/quant/exl3_gemv_rdna.cu) behind the same interface, with a narrower
 eligibility: m = 1 only, integer K = 1..8 with any codebook, k and n multiples of 128 (half-integer bitrates go to
-the GEMM). exl3_gemm takes the RDNA GEMVs for m <= 8 ahead of every other path, so the int8 GEMV is never reached
+the GEMM). exl3_gemm takes eligible single-matrix RDNA GEMVs for m <= 16 ahead of other paths, so the int8 GEMV is never reached
 there and its gate test is CUDA-only; max_k itself follows the same rule (5, no RDNA part counts as Hopper or
 Blackwell).
 """

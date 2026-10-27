@@ -1,5 +1,5 @@
 // =============================================================================
-// Multi-row GEMV for RDNA, m = 2..8
+// Multi-row GEMV for RDNA, single-matrix m = 1..16, multi-matrix m = 1..8
 // =============================================================================
 //
 // The GEMV fast paths take m == 1 only; at m = 2..8 -- speculative-decoding
@@ -8,13 +8,19 @@
 // the weights at a fraction of the GEMV's bandwidth, making the dense linears
 // the largest kernel class of a verify step.
 //
-// This path reads the weights once for up to 8 rows. The dot core is the
-// barrier-free m == 1 core (exl3_gemv_dot_tile_direct) with a row tile M in
-// {2, 4, 8} chosen as the smallest >= m: one B dequant per k-tile feeds M
+// This path reads the weights once per <=8-row group (twice at m=9..16).
+// The dot core is the barrier-free m == 1 core (exl3_gemv_dot_tile_direct)
+// with a row tile M in {1, 2, 4, 8}, the smallest >= m capped at 8.
+// Performance at m=9..16 must be measured, not inferred from the original
+// 2..8-row bandwidth observation above. One B dequant per k-tile feeds M
 // pairs of fdot2 accumulators, and each row's chain is exactly the m == 1
 // chain, so row r of an m-row call is bit-identical to a separate m == 1 call
-// on that row. Rows past m are
-// computed on row m - 1's data and never stored.
+// on that row where both routes use the same split-K rule. Single-matrix calls
+// with 9..16 rows use two independent <=8-row groups, not a wider accumulator
+// tile. Each group has its own output-arrival counters. The final group's
+// missing rows reread its last valid input and are never stored. Row offsets
+// are applied on-device, so graph patch sites still receive the original base
+// pointers (patching host-offset pointers would lose the second group's offset).
 //
 // Structure is the pre-fusion three-kernel form, deliberately. The fused
 // m == 1 kernels rotate the input into LDS in their prologue, which does not
@@ -35,9 +41,9 @@
 // helpers are shared), gated on a runtime LDS budget; not done here.
 //
 // Routing: exl3_gemm_gr and exl3_mgemm_gr call the two try_launch entry
-// points for 2 <= m <= EXL3_GEMV_MAX_M (default 8; 1 switches the path off)
-// before the cooperative kernels, in and out of graph capture. The
-// multi-matrix form declines sliced mode.
+// points before the cooperative kernels, in and out of graph capture.
+// EXL3_GEMV_MAX_M defaults to 16 (1 disables multi-row calls); the multi-matrix
+// form remains capped at 8 and declines sliced mode.
 //
 // Routing weights (the MoE down projection's weighted reduce):
 // at m == 1 the multi-matrix form takes weighted calls too, with the
@@ -69,9 +75,9 @@
 int exl3_gemv_max_m()
 {
     const char* env = std::getenv("EXL3_GEMV_MAX_M");
-    if (!env) return 8;
+    if (!env) return 16;
     int v = atoi(env);
-    return v < 1 ? 1 : (v > 8 ? 8 : v);
+    return v < 1 ? 1 : (v > 16 ? 16 : v);
 }
 
 // m == 1 goes through this structure too, with a row tile of 1 -- rows read
@@ -597,11 +603,13 @@ void exl3_gemv_mr_dot_single
     const int lane = threadIdx.x % 32;
     const int tile_n = blockIdx.x * tpb;
     const int n_tiles = size_n / 16;
+    const int row_start = blockIdx.z * M;
+    const int rows_valid = MIN(M, size_m - row_start);
     exl3_gemv_mr_body<bits, c_fp32, cb, WARPS_PER_BLOCK, M>
     (
-        pb->A_had, size_k, pb->B, size_k, n_tiles, tile_n,
-        pb->C, 0, size_n, size_m, pb->svh,
-        pb->seg_counters, warp_id, lane, core, tpb
+        pb->A_had + (int64_t) row_start * size_k, size_k, pb->B, size_k, n_tiles, tile_n,
+        pb->C, (int64_t) row_start * size_n, size_n, rows_valid, pb->svh,
+        pb->seg_counters + blockIdx.z * (size_n / 128), warp_id, lane, core, tpb
     );
 }
 
@@ -773,7 +781,9 @@ bool exl3_gemv_multirow_try_launch
     if (!exl3_gemv_mr_k_ok(K, cb)) return false;
     if (size_k % 128 || size_n % 128) return false;
     if (!suh_ptr || !A_had_ptr || !svh_ptr) return false;
-    if (size_n / 128 > EXL3_MGEMV_SEG_COUNTERS) return false;
+    const int m_tile = exl3_gemv_mr_row_tile(size_m);
+    const int row_groups = CEIL_DIVIDE(size_m, m_tile);
+    if (row_groups * (size_n / 128) > EXL3_MGEMV_SEG_COUNTERS) return false;
     Exl3GemvMrParams* pb = exl3_gemv_mr_param_block(device, graph == nullptr);
     if (!pb) return false;
 
@@ -803,10 +813,9 @@ bool exl3_gemv_multirow_try_launch
     {
         const int n_tiles = size_n / 16;
         const int warps = exl3_gemv_mr_warps(size_k, n_tiles, 1);
-        const int m_tile = exl3_gemv_mr_row_tile(size_m);
         const int core = exl3_gemv_core_mode();
         const int tpb = exl3_gemv_tiles_tpb(core, device, n_tiles, 1, warps);
-        dim3 grid(n_tiles / tpb, 1);
+        dim3 grid(n_tiles / tpb, 1, row_groups);
         dim3 block(warps * 32);
         size_t smem = exl3_gemv_mr_smem_bytes(warps, m_tile);
         LAUNCH_MR(exl3_gemv_mr_dot_single, pb, size_k, size_n, size_m, core, tpb)
@@ -845,6 +854,8 @@ bool exl3_mgemv_multirow_try_launch
     if (size_m < exl3_gemv_mr_min_m(size_n / 16) || size_m > exl3_gemv_max_m()) return false;
     if (!exl3_gemv_mr_k_ok(K, cb)) return false;
     if (size_k % 128 || size_n % 128) return false;
+    // Only the single-matrix kernel has row-group offsets/counter partitions.
+    if (size_m > 8) return false;
     // Weighted calls (MoE down) at m == 1 with the mgemv epilogue; see the header
     const bool weighted = weights_ptr != nullptr;
     if (weighted && (size_m != 1 || !exl3_gemv_mr_weighted_enabled())) return false;
