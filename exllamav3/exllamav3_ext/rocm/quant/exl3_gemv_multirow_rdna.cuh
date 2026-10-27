@@ -1,7 +1,7 @@
 #pragma once
 
 // =============================================================================
-// Multi-row GEMV for RDNA, m = 2..8 -- host interface
+// Multi-row GEMV for RDNA, single m <= 16 / multi m <= 8 -- host interface
 // =============================================================================
 //
 // See exl3_gemv_multirow_rdna.cu for the design. Both entry points return
@@ -13,8 +13,9 @@
 
 class Graph;
 
-// EXL3_GEMV_MAX_M (default 8, clamp 1..8): the largest m the multi-row GEMV
-// takes; 1 switches the path off. Re-read per call.
+// EXL3_GEMV_MAX_M (default 16, clamp 1..16): single-matrix row limit.
+// Multi-matrix remains capped at 8. Setting 1 disables multi-row calls.
+// Re-read per call; eligible m == 1 calls retain their existing dispatch.
 int exl3_gemv_max_m();
 
 // EXL3_ROCM_HALF_GEMV (default on; =0 sends half-integer bitrates back to the
