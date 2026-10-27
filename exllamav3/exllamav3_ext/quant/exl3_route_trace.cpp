@@ -1,6 +1,7 @@
 #include "exl3_route_trace.h"
 #include "route_trace.h"
 
+#include <ATen/ATen.h>
 #include <cstring>
 
 bool exl3_route_trace_enabled()
