@@ -710,9 +710,10 @@ static int exl3_mgemm_gr_impl
 
 #if defined(USE_ROCM)
     // RDNA: the plain-launch multi-matrix GEMVs (rocm/quant/exl3_mgemv_rdna.cu, exl3_gemv_multirow_rdna.cu)
-    // take m = 1..8 ahead of the cooperative kernel. Sliced mode is per-source strided, which they do not
-    // handle, so it stays on the cooperative kernel
-    if (size_m >= 1 && size_m <= 8 && force_shape_idx <= 0 && force_num_sms <= 0 && !had_src_list
+    // take m = 1..8 ahead of the cooperative kernel, and 9..16 when EXL3_MGEMV_MAX_M allows (the multi-row
+    // path decides). Sliced mode is per-source strided, which they do not handle, so it stays on the
+    // cooperative kernel
+    if (size_m >= 1 && size_m <= 16 && force_shape_idx <= 0 && force_num_sms <= 0 && !had_src_list
         && (!half_k || exl3_rocm_half_gemv_enabled()))
     {
         if (exl3_mgemv_multirow_try_launch

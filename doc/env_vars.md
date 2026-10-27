@@ -318,11 +318,25 @@ Host-side trace of the kernel route every `exl3_gemm` / `exl3_mgemm` call took (
 points' return value: RDNA multi-row GEMV, fused m = 1 GEMV, cooperative GEMM shape index, ...)
 with the call's rows, widths, bitrate, codebook and flags. The native BC_* modules discard that
 return value, so without the trace nothing records which route a projection inside a model
-forward dispatched to. `1` records from process start; `exllamav3.util.route_trace.capture()`
-turns it on around one block of calls and reads the records back. `EXL3_ROUTE_TRACE_MAX` bounds
-the stored records; calls past it are counted as dropped. Graph-captured calls are recorded once,
-at capture time. Off, each entry point pays one relaxed atomic load; on, host work per call. A
-diagnostic for attributing numerical differences to routes, never timing evidence.
+forward dispatched to. The routed-expert tiers, which bypass those entry points (the fused
+`exl3_moe` kernel, the RDNA `moe_decode` tier and the cooperative bszN tier), record through
+their own entry points, so a MoE layer's experts appear next to its dense projections. `1`
+records from process start; `exllamav3.util.route_trace.capture()` turns it on around one block
+of calls and reads the records back. `EXL3_ROUTE_TRACE_MAX` bounds the stored records; calls past
+it are counted as dropped. Graph-captured calls are recorded once, at capture time. Off, each
+entry point pays one relaxed atomic load; on, host work per call. A diagnostic for attributing
+numerical differences to routes, never timing evidence.
+
+### `EXL3_GEMV_MAX_M` (ROCm; default: `16`), `EXL3_MGEMV_MAX_M` (ROCm; default: `8`)
+
+Row limits of the RDNA multi-row GEMV (`rocm/quant/exl3_gemv_multirow_rdna.cu`), which runs
+m-row calls as groups of at most 8 rows whose rows keep the m = 1 GEMV arithmetic exactly, ahead
+of the cooperative WMMA GEMM. `EXL3_GEMV_MAX_M` bounds single-matrix calls (clamp 1..16; `1`
+switches the path off; above 8 each call runs as two row groups). `EXL3_MGEMV_MAX_M` bounds the
+multi-matrix form (gate/up and k/v pairs; clamp 1..16): the default 8 leaves every call at or
+below 8 rows, and so AR and native MTP decoding, exactly as before; `16` runs 9..16-row calls as
+two groups per slot instead of the WMMA mgemm. Weighted (MoE down) calls stay at m = 1 and the
+sliced form stays on the cooperative kernel regardless. Both are re-read per call.
 
 ### `EXLLAMAV3_TUNE_CACHE` (default: platform cache dir)
 

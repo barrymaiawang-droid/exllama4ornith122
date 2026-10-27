@@ -1,7 +1,7 @@
 #pragma once
 
 // =============================================================================
-// Multi-row GEMV for RDNA, single m <= 16 / multi m <= 8 -- host interface
+// Multi-row GEMV for RDNA, single m <= 16 / multi m <= 8 (16 opt-in) -- host interface
 // =============================================================================
 //
 // See exl3_gemv_multirow_rdna.cu for the design. Both entry points return
@@ -14,9 +14,15 @@
 class Graph;
 
 // EXL3_GEMV_MAX_M (default 16, clamp 1..16): single-matrix row limit.
-// Multi-matrix remains capped at 8. Setting 1 disables multi-row calls.
-// Re-read per call; eligible m == 1 calls retain their existing dispatch.
+// Setting 1 disables multi-row calls. Re-read per call; eligible m == 1 calls
+// retain their existing dispatch.
 int exl3_gemv_max_m();
+
+// EXL3_MGEMV_MAX_M (default 8, clamp 1..16): multi-matrix row limit. Above 8
+// each slot runs as two <= 8-row groups whose rows keep the m == 1 arithmetic;
+// 9..16-row calls otherwise fall to the cooperative mgemm (WMMA). Re-read per
+// call. Opt-in: the default leaves every m <= 8 call, and AR, exactly as before.
+int exl3_mgemv_max_m();
 
 // EXL3_ROCM_HALF_GEMV (default on; =0 sends half-integer bitrates back to the
 // cooperative GEMM / mgemm). Callers pass K = EXL3_HALF_BITS(K) (16 + K, see
