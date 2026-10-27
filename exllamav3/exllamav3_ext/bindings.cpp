@@ -26,6 +26,7 @@
 #include "quant/exl3_gemm.cuh"
 #include "quant/exl3_gemv.cuh"
 #include "quant/exl3_gemv_int8.cuh"
+#include "quant/exl3_route_trace.h"
 #include "quant/frac.cuh"
 #include "cpu/moe_mul1.h"
 #include "cpu/moe_handoff.h"
@@ -181,6 +182,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("exl3_gemm", &exl3_gemm, "exl3_gemm");
     m.def("exl3_gemv", &exl3_gemv, "exl3_gemv");
     m.def("exl3_gemm_num_kernel_shapes", &exl3_gemm_num_kernel_shapes, "exl3_gemm_num_kernel_shapes");
+    m.def("exl3_route_trace_enabled", &exl3_route_trace_enabled, "exl3_route_trace_enabled");
+    m.def("exl3_route_trace_set_enabled", &exl3_route_trace_set_enabled, "exl3_route_trace_set_enabled");
+    m.def("exl3_route_trace_reset", &exl3_route_trace_reset, "exl3_route_trace_reset");
+    m.def("exl3_route_trace_dump", &exl3_route_trace_dump, "exl3_route_trace_dump");
     m.def("exl3_gemm_shape_compat", &exl3_gemm_shape_compat, "exl3_gemm_shape_compat",
           py::arg("shape_idx"), py::arg("size_m"), py::arg("size_k"), py::arg("size_n"), py::arg("bits"), py::arg("half_k") = false);
     m.def("g_get_cc", &g_get_cc, "g_get_cc");

@@ -13,6 +13,7 @@ namespace cg = cooperative_groups;
 #include "exl3_gemv.cuh"
 #include "exl3_gemv_int8.cuh"
 #include "coop_autotune.cuh"
+#include "route_trace.h"
 #if defined(USE_ROCM)
     #include "../rocm/quant/exl3_mgemv_rdna.cuh"
     #include "../rocm/quant/exl3_gemv_multirow_rdna.cuh"
@@ -115,7 +116,7 @@ uint64_t mgemm_autotune_hash
     return h;
 }
 
-int exl3_gemm_gr
+static int exl3_gemm_gr_impl
 (
     const at::Tensor& A,
     const at::Tensor& B,
@@ -406,6 +407,50 @@ int exl3_gemm_gr
     return shape_idx;
 }
 
+// Entry point: the dispatch above, plus one host-side trace record per call when the route
+// trace is on (quant/route_trace.h; off by default, one relaxed load otherwise). Recorded after
+// the launch, so a call the checks reject leaves no record. Shapes are read the way the
+// implementation reads them (m = product of A's leading dims, n = 16 * B.size(1))
+int exl3_gemm_gr
+(
+    const at::Tensor& A,
+    const at::Tensor& B,
+    at::Tensor& C,
+    const c10::optional<at::Tensor>& suh,
+    const c10::optional<at::Tensor>& A_had,
+    const c10::optional<at::Tensor>& svh,
+    int force_shape_idx,
+    bool mcg,
+    bool mul1,
+    int force_num_sms,
+    Graph* graph
+)
+{
+    int route = exl3_gemm_gr_impl(A, B, C, suh, A_had, svh, force_shape_idx, mcg, mul1, force_num_sms, graph);
+
+    exl3_route_trace::Trace& trace = exl3_route_trace::Trace::instance();
+    if (trace.enabled())
+    {
+        exl3_route_trace::Record r;
+        r.kind = exl3_route_trace::KIND_GEMM;
+        int64_t size_m = 1;
+        for (int d = 0; d < A.dim() - 1; ++d) size_m *= A.size(d);
+        r.m = (int32_t) size_m;
+        r.k = (int32_t) A.size(-1);
+        r.n = (int32_t) (B.size(1) * 16);
+        r.slots = 1;
+        r.tile_u16 = (int32_t) B.size(2);
+        r.cb = mul1 ? 2 : (mcg ? 1 : 0);
+        r.flags = (C.dtype() == at::kFloat ? exl3_route_trace::FLAG_FP32 : 0)
+                | (graph ? exl3_route_trace::FLAG_GRAPH : 0)
+                | ((r.tile_u16 % 16) != 0 ? exl3_route_trace::FLAG_HALF_K : 0);
+        r.force_shape = force_shape_idx;
+        r.route = route;
+        trace.record(r);
+    }
+    return route;
+}
+
 int exl3_gemm
 (
     const at::Tensor& A,
@@ -481,7 +526,7 @@ Limitations: k must be divisible by 16 and n by 128. Range filtering supports
 at most 128 slots (the kernel's index-compaction capacity).
 */
 
-int exl3_mgemm_gr
+static int exl3_mgemm_gr_impl
 (
     const at::Tensor& A,
     const at::Tensor& B,
@@ -837,6 +882,66 @@ int exl3_mgemm_gr
 
     cuda_check(cudaPeekAtLastError());
     return shape_idx;
+}
+
+// Entry point: see exl3_gemm_gr. n is the slot width C.size(2) (sliced calls carry per-entry
+// widths in size_n_list; the record keeps the carrier's), slots is max(A.size(0), C.size(0))
+// before the index-table clamp, i.e. the tables' extent, not the active slot count
+int exl3_mgemm_gr
+(
+    const at::Tensor& A,
+    const at::Tensor& B,
+    at::Tensor& C,
+    const at::Tensor& suh,
+    const at::Tensor& A_had,
+    const at::Tensor& svh,
+    const c10::optional<at::Tensor>& indices,
+    const c10::optional<at::Tensor>& weights,
+    float K_,
+    int force_shape_idx,
+    bool mcg,
+    bool mul1,
+    int min_index,
+    int max_index,
+    int force_num_sms,
+    Graph* graph,
+    int num_tokens,
+    const c10::optional<at::Tensor>& size_n_list,
+    const c10::optional<at::Tensor>& c_ptrs,
+    const c10::optional<at::Tensor>& n_stride_list,
+    const c10::optional<at::Tensor>& had_src_list,
+    int num_had_src
+)
+{
+    int route = exl3_mgemm_gr_impl
+    (
+        A, B, C, suh, A_had, svh, indices, weights, K_, force_shape_idx, mcg, mul1, min_index, max_index,
+        force_num_sms, graph, num_tokens, size_n_list, c_ptrs, n_stride_list, had_src_list, num_had_src
+    );
+
+    exl3_route_trace::Trace& trace = exl3_route_trace::Trace::instance();
+    if (trace.enabled())
+    {
+        exl3_route_trace::Record r;
+        r.kind = exl3_route_trace::KIND_MGEMM;
+        r.m = (int32_t) A.size(1);
+        r.k = (int32_t) A.size(2);
+        r.n = (int32_t) C.size(2);
+        int64_t slots_out = c_ptrs ? c_ptrs.value().size(0) : C.size(0);
+        r.slots = (int32_t) MAX(A.size(0), slots_out);
+        r.tile_u16 = (int32_t) (K_ * 16.0f + 0.5f);
+        r.cb = mul1 ? 2 : (mcg ? 1 : 0);
+        r.flags = (C.dtype() == at::kFloat ? exl3_route_trace::FLAG_FP32 : 0)
+                | (graph ? exl3_route_trace::FLAG_GRAPH : 0)
+                | (weights ? exl3_route_trace::FLAG_WEIGHTS : 0)
+                | (indices ? exl3_route_trace::FLAG_INDICES : 0)
+                | (had_src_list ? exl3_route_trace::FLAG_SLICED : 0)
+                | ((r.tile_u16 % 16) != 0 ? exl3_route_trace::FLAG_HALF_K : 0);
+        r.force_shape = force_shape_idx;
+        r.route = route;
+        trace.record(r);
+    }
+    return route;
 }
 
 int exl3_mgemm

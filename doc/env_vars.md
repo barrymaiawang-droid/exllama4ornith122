@@ -312,6 +312,18 @@ per-expert MoE dequant path (small row counts per expert), the rotated-basis pip
 (input Hadamard → GEMM → output Hadamard) is kept. Set to `1` to force the rotated-basis
 pipeline everywhere, for A/B testing.
 
+### `EXL3_ROUTE_TRACE` (default: `0`), `EXL3_ROUTE_TRACE_MAX` (default: `262144`)
+
+Host-side trace of the kernel route every `exl3_gemm` / `exl3_mgemm` call took (the entry
+points' return value: RDNA multi-row GEMV, fused m = 1 GEMV, cooperative GEMM shape index, ...)
+with the call's rows, widths, bitrate, codebook and flags. The native BC_* modules discard that
+return value, so without the trace nothing records which route a projection inside a model
+forward dispatched to. `1` records from process start; `exllamav3.util.route_trace.capture()`
+turns it on around one block of calls and reads the records back. `EXL3_ROUTE_TRACE_MAX` bounds
+the stored records; calls past it are counted as dropped. Graph-captured calls are recorded once,
+at capture time. Off, each entry point pays one relaxed atomic load; on, host work per call. A
+diagnostic for attributing numerical differences to routes, never timing evidence.
+
 ### `EXLLAMAV3_TUNE_CACHE` (default: platform cache dir)
 
 Override the path of the on-disk autotune cache for the cooperative GEMM kernels (kernel shape
