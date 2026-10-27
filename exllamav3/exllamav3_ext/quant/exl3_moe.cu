@@ -10,6 +10,7 @@ namespace cg = cooperative_groups;
 #include "comp_units/exl3_moe_instances.cuh"
 #include "bits_k.cuh"
 #include "exl3_devctx.cuh"
+#include "route_trace.h"
 #include <set>
 #if defined(USE_ROCM)
     #include "../rocm/quant/exl3_moe_pipe_instances_rdna.cuh"
@@ -576,6 +577,26 @@ void exl3_moe
     );
 
     cuda_check(cudaPeekAtLastError());
+
+    // Route trace (quant/route_trace.h): the fused tier as one record per launch
+    exl3_route_trace::Trace& trace = exl3_route_trace::Trace::instance();
+    if (trace.enabled())
+    {
+        exl3_route_trace::Record r;
+        r.kind = exl3_route_trace::KIND_MOE_FUSED;
+        r.m = (int32_t) bsz;
+        r.k = (int32_t) hidden_dim;
+        r.n = (int32_t) intermediate_dim;
+        r.slots = (int32_t) num_active;
+        r.tile_u16 = (int32_t) (K_gate * 16.0f + 0.5f);
+        r.cb = gate_mul1 ? 2 : (gate_mcg ? 1 : 0);
+        r.flags = (output_state.dtype() == at::kFloat ? exl3_route_trace::FLAG_FP32 : 0)
+                | exl3_route_trace::FLAG_WEIGHTS
+                | ((r.tile_u16 % 16) != 0 ? exl3_route_trace::FLAG_HALF_K : 0);
+        r.force_shape = -1;
+        r.route = m_tile;
+        trace.record(r);
+    }
 }
 
 
