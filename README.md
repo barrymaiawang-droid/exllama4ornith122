@@ -276,7 +276,7 @@ For more information, see the [**QTIP**](https://arxiv.org/abs/2406.11235) and [
 
 ## What this fork changes versus upstream
 
-`master` here is upstream `c28e026b` plus **11 commits / 21 files / +1874 −43**. Everything below was
+`master` here is upstream ExLlamaV3 **v1.6.4 (`c28e026b`)** plus **13 commits, 21 files, 1904 insertions, 43 deletions**. Everything below was
 developed and validated on the pinned ROCm 10 stack (torch 2.14.0+rocm10.1.0a20260822, HIP 7.16.26332,
 gfx1151) — note that ROCm 10 itself needed **no source patch**; it is the target the changes were built
 and measured against, and the deltas are the kernel, router and diagnostic changes listed here.
