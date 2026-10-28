@@ -171,3 +171,23 @@ privileged ownership/admission records, private host paths, raw tensors, weights
 caches and binaries are excluded from this branch and issue. Any later local
 verification requires a fresh admitted window; no monitoring or automatic retry
 is implied by this handoff.
+
+## Deployment default (2026-10-28)
+
+This deployment now runs DFlash2 as the default spec, with the int8 multirow router displaced:
+
+```
+EXL3_ROUTER_DET=0   # REQUIRED: without it >3-row routing uses the int8 projection and the
+                    # unchanged 0.25 quality gate fails (0.6875 short / 0.265625 prose)
+--draft-model <Ornith-1.5-122B-DFlash2>  --draft 15   # selects DFlash2 instead of MTP
+```
+
+With the switch the same gate passes (short divergence moves to token 27 with a 0.03125 near-tie;
+prose shows no divergence). Measured generation is 91.6-97.8 t/s versus 19.7-21.0 t/s for MTP2 on
+forced 256-token windows; short natural-stop answers are dominated by ~1.5 s of per-request cost,
+not by decode rate. MTP2 remains available (`--draft 2`, no `--draft-model`) as the fallback.
+
+Caveats that matter for anyone reusing this: the switch is process-wide and latched at each layer's
+first routing call, so set it before loading; do not use it with tensor-parallel replicated routing,
+which depends on the deterministic projection for cross-rank agreement; and it was validated on one
+checkpoint (48 MoE layers, `router_type std`) on a single ROCm/gfx1151 GPU.
