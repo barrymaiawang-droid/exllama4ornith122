@@ -276,7 +276,7 @@ For more information, see the [**QTIP**](https://arxiv.org/abs/2406.11235) and [
 
 ## What this fork changes versus upstream
 
-`master` here is upstream `da68d57d` plus **10 commits / 21 files / +1854 −43**. Everything below was
+`master` here is upstream `da68d57d` plus **11 commits / 21 files / +1874 −43**. Everything below was
 developed and validated on the pinned ROCm 10 stack (torch 2.14.0+rocm10.1.0a20260822, HIP 7.16.26332,
 gfx1151) — note that ROCm 10 itself needed **no source patch**; it is the target the changes were built
 and measured against, and the deltas are the kernel, router and diagnostic changes listed here.
@@ -292,7 +292,8 @@ and measured against, and the deltas are the kernel, router and diagnostic chang
 | `c41d125b` | router | `EXL3_ROUTER_DET` switch: displace the int8 deterministic multi-row router projection so rows >3 route on the half-precision GEMM |
 | `90680a81` | docs | handoff note for the remaining DFlash2 numerical failures |
 | `2091dc98` | docs | record DFlash2 as the deployment default together with the required `EXL3_ROUTER_DET=0` |
-| `ad800616` | docs | this README section |
+| `ad800616` | docs | first README section |
+| `7100db5d` | docs | this inventory and the run notes below |
 
 ### The router switch in more detail
 
@@ -320,6 +321,35 @@ projection, and with it displaced ranks can select different experts. The value 
 each layer latches at its first routing call, so set it before loading. Evidence covers one
 checkpoint, `router_type std`, one GPU, ROCm only, with one quality run per router state; the switch
 has no automated test because routing is not observable from Python.
+
+### Running it (this deployment)
+
+The model runs from a pinned tree with the compiled extension on `PYTHONPATH`, one process per GPU:
+
+```bash
+EXL3_ROUTER_DET=0 \
+  python -P tools/ornith-serve/ornith_serve.py \
+    --model  /path/Ornith-1.5-122B-EXL3-EAQv1-4-bpw \
+    --draft-model /path/Ornith-1.5-122B-DFlash2 \
+    --ctx 262144 --port 18161 --host 0.0.0.0 \
+    --served-name ornith-1.5-122b-exl3
+```
+
+`--draft-model` selects DFlash2; omit it and pass `--draft 2` for the MTP drafter. `EXL3_ROUTER_DET=0`
+is required with DFlash2, otherwise the 0.25 quality gate fails as described above.
+
+In `llmfleet` the entry boots with a **spec chooser**: press `b` on
+`Ornith-1.5-122B EXL3 (choose spec on boot)` and pick `DFlash2` or `MTP2` in the Boot Options dialog
+(the `profile` field is forwarded to the launcher as `PROFILE=`). A CLI shortcut does the same thing:
+
+```bash
+~/ornith122-switch.sh dflash2   # or mtp2, or status
+```
+
+Measured on this box (gfx1151, ctx 262144): generation **91.6-97.8 t/s** with DFlash2 versus
+**19.7-21.0 t/s** with MTP2 on forced 256-token windows; 64-token requests land at ~48 t/s because
+per-request cost dominates short answers, and the first request after load is a cold outlier.
+Prefill is unaffected at ~684 t/s for a 3.1k-token prompt.
 
 ### Tests added
 
