@@ -274,6 +274,39 @@ For more information, see the [**QTIP**](https://arxiv.org/abs/2406.11235) and [
 [excellent writeup](https://www.together.ai/blog/even-better-even-faster-quantized-llms-with-qtip) on **QTIP** from together.ai.
 
 
+## Experimental branch: expert-router switch (`EXL3_ROUTER_DET`)
+
+This branch (not upstream `master`) adds one environment switch to the MoE expert router, plus its
+documentation in `doc/env_vars.md`.
+
+**What it does.** Above three rows the router uses the int8 deterministic projection (it exists so
+replicated tensor-parallel ranks agree bit-for-bit); single rows use the half-precision GEMV. The two
+are not interchangeable: on identical input and weights they produce different router scores, and
+occasionally a different top-k expert. `EXL3_ROUTER_DET=0` displaces the int8 projection so every
+batch above three rows routes on the half-precision GEMM, while batches of up to three rows keep the
+single-row GEMV. Unset (or any value other than exactly `0`) preserves the historical behaviour.
+
+**Why it matters.** Speculative verification presents a whole draft window as one wide batch, so
+those tokens route through a different approximation than one-token decoding. On Ornith-1.5-122B
+EXL3 (48 MoE layers, `router_type std`, single ROCm/gfx1151 GPU) the 16-row DFlash2 verification
+window diverged from AR greedy decoding: a greedy-equivalence gate at tolerance 0.25 failed at
+0.6875 (token 18) and 0.265625 (token 43). With `EXL3_ROUTER_DET=0` the same gate passes — the
+first divergence moves to token 27 at a 0.03125 near-tie and the prose prompt shows none. A loaded
+router replay measured the mechanism directly: 420 of 8192 router scores, one selected expert and
+88 of 256 weights differ between the int8 and half-precision paths on the same input.
+
+**Cost.** This is a resolution switch, not a speed switch. Multi-row routing — including plain
+prompt prefill above three rows — runs the half-precision GEMM instead of the int8 tensor-core
+projection and is expected to be slower; no throughput is claimed for the mode. Do not set it under
+tensor parallelism: replicated routing depends on the deterministic projection to keep ranks
+identical, and with it displaced the ranks can select different experts. The value is read per call
+but each layer latches its state at its first routing call, so set it before loading a model.
+
+**Scope of the evidence.** One checkpoint, `router_type std`, one GPU, ROCm only; the greedy gate
+was validated with a single quality run per router state, and the switch still has no automated test
+because routing is not observable from Python. Treat it as an opt-in for verification-sensitive
+single-GPU serving, not a default.
+
 ## Community
 
 You are always welcome to join the [ExLlama discord server](https://discord.gg/NSFwVuCjRq) ←🎮
