@@ -276,24 +276,24 @@ For more information, see the [**QTIP**](https://arxiv.org/abs/2406.11235) and [
 
 ## What this fork changes versus upstream
 
-`master` here is upstream `da68d57d` plus **11 commits / 21 files / +1874 −43**. Everything below was
+`master` here is upstream `c28e026b` plus **11 commits / 21 files / +1874 −43**. Everything below was
 developed and validated on the pinned ROCm 10 stack (torch 2.14.0+rocm10.1.0a20260822, HIP 7.16.26332,
 gfx1151) — note that ROCm 10 itself needed **no source patch**; it is the target the changes were built
 and measured against, and the deltas are the kernel, router and diagnostic changes listed here.
 
 | Commit | Area | Change |
 |---|---|---|
-| `27e2ec7d` | ROCm kernels | `gdn.cu`: preserve GDN recurrent state rounding across speculative tokens (single-row and batched verify paths) |
-| `6bc9a866` | ROCm kernels | 16-row GEMV groups: rows 9–16 split into two independent ≤8-row groups so row arithmetic matches the narrow path; new rowgroup tests |
-| `ffb64831` | ROCm kernels | same grouping extended to the **multi-matrix** GEMV, opt-in via `EXL3_MGEMV_MAX_M` (default 8, value 16 enables it) |
-| `4b745254` | diagnostics | dispatch route trace for every `exl3_gemm` / `exl3_mgemm` call: C++ ring recorder, Python API, env switches, host tests |
-| `30cab0c0` | diagnostics | include ATen ops in the route-trace accessors (one line) |
-| `fcf89401` | diagnostics + util | trace the routed-expert tiers (fused / RDNA decode / cooperative); add `util/exact_linear.py`, an exact-key linear lookup plus diagnostic pointer-table helper for operator replay |
-| `c41d125b` | router | `EXL3_ROUTER_DET` switch: displace the int8 deterministic multi-row router projection so rows >3 route on the half-precision GEMM |
-| `90680a81` | docs | handoff note for the remaining DFlash2 numerical failures |
-| `2091dc98` | docs | record DFlash2 as the deployment default together with the required `EXL3_ROUTER_DET=0` |
-| `ad800616` | docs | first README section |
-| `7100db5d` | docs | this inventory and the run notes below |
+| `434117c1` | ROCm kernels | `gdn.cu`: preserve GDN recurrent state rounding across speculative tokens (single-row and batched verify paths) |
+| `a245af42` | ROCm kernels | 16-row GEMV groups: rows 9–16 split into two independent ≤8-row groups so row arithmetic matches the narrow path; new rowgroup tests |
+| `3c885555` | ROCm kernels | same grouping extended to the **multi-matrix** GEMV, opt-in via `EXL3_MGEMV_MAX_M` (default 8, value 16 enables it) |
+| `6d52fefb` | diagnostics | dispatch route trace for every `exl3_gemm` / `exl3_mgemm` call: C++ ring recorder, Python API, env switches, host tests |
+| `dccad676` | diagnostics | include ATen ops in the route-trace accessors (one line) |
+| `8973706c` | diagnostics + util | trace the routed-expert tiers (fused / RDNA decode / cooperative); add `util/exact_linear.py`, an exact-key linear lookup plus diagnostic pointer-table helper for operator replay |
+| `4684eb65` | router | `EXL3_ROUTER_DET` switch: displace the int8 deterministic multi-row router projection so rows >3 route on the half-precision GEMM |
+| `999856a6` | docs | handoff note for the remaining DFlash2 numerical failures |
+| `13324992` | docs | record DFlash2 as the deployment default together with the required `EXL3_ROUTER_DET=0` |
+| `74f82137` | docs | first README section |
+| `9b0b0706` | docs | this inventory and the run notes below |
 
 ### The router switch in more detail
 

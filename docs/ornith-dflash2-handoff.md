@@ -4,7 +4,7 @@
 
 The original AR/native-MTP2 project has independently accepted numerical,
 functional-serving/dsh and current matched-performance scope. Its experimental
-handoff is [f326f7b8](https://github.com/barrymaiawang-droid/exllamav3/commit/f326f7b8e2e8d44f579cd63d9ec54dd794db35e5).
+handoff is [80f03651](https://github.com/barrymaiawang-droid/exllama4ornith122/commit/80f03651fd896758a9a548f762aecd5732e5d64d).
 Historical noisy timing windows remain inconclusive, not retrospectively passed;
 this is not a zero-slowdown or speed-gain claim. No production/default/fleet change.
 
@@ -15,11 +15,11 @@ improvement without quality or functional regressions; otherwise deliver a
 correctly functioning opt-in mode. Do not relax the quality threshold.
 
 This branch starts at the **exact tested Claude source**
-[`30cab0c0dc02f3c0f0d038d954087b8bc24432e7`](https://github.com/barrymaiawang-droid/exllamav3/commit/30cab0c0dc02f3c0f0d038d954087b8bc24432e7).
+[`dccad6768e6efdd55a893ebaddcd39e9a0ee2847`](https://github.com/barrymaiawang-droid/exllama4ornith122/commit/dccad6768e6efdd55a893ebaddcd39e9a0ee2847).
 The new commit adds this handoff only: **no untested arithmetic patch** or repaired
 model-quality claim. Earlier investigation:
-[issue #1](https://github.com/barrymaiawang-droid/exllamav3/issues/1) and
-[actual route-census feedback](https://github.com/barrymaiawang-droid/exllamav3/issues/1#issuecomment-6445583106).
+[issue #1](https://github.com/barrymaiawang-droid/exllama4ornith122/issues/1) and
+[actual route-census feedback](https://github.com/barrymaiawang-droid/exllama4ornith122/issues/1#issuecomment-6445583106).
 
 ## Pinned target, drafter and stack
 
@@ -40,7 +40,7 @@ model-quality claim. Earlier investigation:
 ## Actual correctness evidence: operator PASS is not model PASS
 
 The single-matrix row16 implementation at
-[`6bc9a866`](https://github.com/barrymaiawang-droid/exllamav3/commit/6bc9a866aef8ad0f86b46bd447aee657d36c7c47)
+[`a245af42`](https://github.com/barrymaiawang-droid/exllama4ornith122/commit/a245af42799286d0e69dc8d201ec3247457e50f1)
 uses two independent <=8-row groups; the two-matrix path still declines >8 rows.
 The focused GPU suite passed **19/19 nodes, 57/57 phases, zero skips/failures**.
 Its native artifact SHA256 was
@@ -61,7 +61,7 @@ failed jobs a quality pass. Model execution/SDK/ownership/cleanup success was
 separate from the numerical failures.
 
 That is the full-quality result on the row16 artifact, **not** a rerun of the full
-schedule on the later tracing artifact. The rebuilt `30cab0c0` artifact
+schedule on the later tracing artifact. The rebuilt `dccad676` artifact
 `983a5834749e6404f26ee51c7de28e09ae8b0ada17298f404627e8cbe20927d1`
 was used for the bounded route census and later load/operator diagnostics only.
 
@@ -133,7 +133,7 @@ another measured numerical failure or a model fix.
 The failed resolver inspected only **direct attribute values** for
 `type(value).__name__ == "MultiLinear"`. `GatedMLP` stores these objects inside
 **`self.multi_gu`, a list**, not as a direct attribute. See
-[`mlp.py` constructor/load](https://github.com/barrymaiawang-droid/exllamav3/blob/30cab0c0dc02f3c0f0d038d954087b8bc24432e7/exllamav3/modules/mlp.py#L710-L804):
+[`mlp.py` constructor/load](https://github.com/barrymaiawang-droid/exllama4ornith122/blob/dccad6768e6efdd55a893ebaddcd39e9a0ee2847/exllamav3/modules/mlp.py#L710-L804):
 `self.multi_gu = [None] * self.num_slices`, followed by
 `self.multi_gu[load_slice] = MultiLinear(..., [self.gates[load_slice], self.ups[load_slice]])`.
 Thus the direct-attribute-only search cannot find this real pair. Use the framework's
@@ -147,11 +147,11 @@ second. All failed/refused windows remain retained with exclusive identities.
 
 ## Source entry points and next checks
 
-- [Dispatch / m16 fallback](https://github.com/barrymaiawang-droid/exllamav3/blob/30cab0c0dc02f3c0f0d038d954087b8bc24432e7/exllamav3/exllamav3_ext/quant/exl3_gemm.cu)
-- [Multirow kernel / single-matrix row groups / two-matrix <=8 guard](https://github.com/barrymaiawang-droid/exllamav3/blob/30cab0c0dc02f3c0f0d038d954087b8bc24432e7/exllamav3/exllamav3_ext/rocm/quant/exl3_gemv_multirow_rdna.cu)
-- [MultiLinear pointer-table layout](https://github.com/barrymaiawang-droid/exllamav3/blob/30cab0c0dc02f3c0f0d038d954087b8bc24432e7/exllamav3/modules/multilinear.py)
-- [Target normalized-sublayer input order](https://github.com/barrymaiawang-droid/exllamav3/blob/30cab0c0dc02f3c0f0d038d954087b8bc24432e7/exllamav3/modules/transformer.py#L150-L210)
-- [Existing row-group GPU regression](https://github.com/barrymaiawang-droid/exllamav3/blob/30cab0c0dc02f3c0f0d038d954087b8bc24432e7/tests/kernels/gemm/test_exl3_gemv_rowgroups.py)
+- [Dispatch / m16 fallback](https://github.com/barrymaiawang-droid/exllama4ornith122/blob/dccad6768e6efdd55a893ebaddcd39e9a0ee2847/exllamav3/exllamav3_ext/quant/exl3_gemm.cu)
+- [Multirow kernel / single-matrix row groups / two-matrix <=8 guard](https://github.com/barrymaiawang-droid/exllama4ornith122/blob/dccad6768e6efdd55a893ebaddcd39e9a0ee2847/exllamav3/exllamav3_ext/rocm/quant/exl3_gemv_multirow_rdna.cu)
+- [MultiLinear pointer-table layout](https://github.com/barrymaiawang-droid/exllama4ornith122/blob/dccad6768e6efdd55a893ebaddcd39e9a0ee2847/exllamav3/modules/multilinear.py)
+- [Target normalized-sublayer input order](https://github.com/barrymaiawang-droid/exllama4ornith122/blob/dccad6768e6efdd55a893ebaddcd39e9a0ee2847/exllamav3/modules/transformer.py#L150-L210)
+- [Existing row-group GPU regression](https://github.com/barrymaiawang-droid/exllama4ornith122/blob/dccad6768e6efdd55a893ebaddcd39e9a0ee2847/tests/kernels/gemm/test_exl3_gemv_rowgroups.py)
 
 First fix the bounded diagnostic lookup and establish the real-input operator
 result. Only if it supports the family hypothesis, investigate two-matrix m9..16
