@@ -274,38 +274,58 @@ For more information, see the [**QTIP**](https://arxiv.org/abs/2406.11235) and [
 [excellent writeup](https://www.together.ai/blog/even-better-even-faster-quantized-llms-with-qtip) on **QTIP** from together.ai.
 
 
-## Experimental branch: expert-router switch (`EXL3_ROUTER_DET`)
+## What this fork changes versus upstream
 
-This branch (not upstream `master`) adds one environment switch to the MoE expert router, plus its
-documentation in `doc/env_vars.md`.
+`master` here is upstream `da68d57d` plus **10 commits / 21 files / +1854 −43**. Everything below was
+developed and validated on the pinned ROCm 10 stack (torch 2.14.0+rocm10.1.0a20260822, HIP 7.16.26332,
+gfx1151) — note that ROCm 10 itself needed **no source patch**; it is the target the changes were built
+and measured against, and the deltas are the kernel, router and diagnostic changes listed here.
 
-**What it does.** Above three rows the router uses the int8 deterministic projection (it exists so
-replicated tensor-parallel ranks agree bit-for-bit); single rows use the half-precision GEMV. The two
-are not interchangeable: on identical input and weights they produce different router scores, and
-occasionally a different top-k expert. `EXL3_ROUTER_DET=0` displaces the int8 projection so every
-batch above three rows routes on the half-precision GEMM, while batches of up to three rows keep the
-single-row GEMV. Unset (or any value other than exactly `0`) preserves the historical behaviour.
+| Commit | Area | Change |
+|---|---|---|
+| `27e2ec7d` | ROCm kernels | `gdn.cu`: preserve GDN recurrent state rounding across speculative tokens (single-row and batched verify paths) |
+| `6bc9a866` | ROCm kernels | 16-row GEMV groups: rows 9–16 split into two independent ≤8-row groups so row arithmetic matches the narrow path; new rowgroup tests |
+| `ffb64831` | ROCm kernels | same grouping extended to the **multi-matrix** GEMV, opt-in via `EXL3_MGEMV_MAX_M` (default 8, value 16 enables it) |
+| `4b745254` | diagnostics | dispatch route trace for every `exl3_gemm` / `exl3_mgemm` call: C++ ring recorder, Python API, env switches, host tests |
+| `30cab0c0` | diagnostics | include ATen ops in the route-trace accessors (one line) |
+| `fcf89401` | diagnostics + util | trace the routed-expert tiers (fused / RDNA decode / cooperative); add `util/exact_linear.py`, an exact-key linear lookup plus diagnostic pointer-table helper for operator replay |
+| `c41d125b` | router | `EXL3_ROUTER_DET` switch: displace the int8 deterministic multi-row router projection so rows >3 route on the half-precision GEMM |
+| `90680a81` | docs | handoff note for the remaining DFlash2 numerical failures |
+| `2091dc98` | docs | record DFlash2 as the deployment default together with the required `EXL3_ROUTER_DET=0` |
+| `ad800616` | docs | this README section |
 
-**Why it matters.** Speculative verification presents a whole draft window as one wide batch, so
-those tokens route through a different approximation than one-token decoding. On Ornith-1.5-122B
-EXL3 (48 MoE layers, `router_type std`, single ROCm/gfx1151 GPU) the 16-row DFlash2 verification
-window diverged from AR greedy decoding: a greedy-equivalence gate at tolerance 0.25 failed at
-0.6875 (token 18) and 0.265625 (token 43). With `EXL3_ROUTER_DET=0` the same gate passes — the
-first divergence moves to token 27 at a 0.03125 near-tie and the prose prompt shows none. A loaded
-router replay measured the mechanism directly: 420 of 8192 router scores, one selected expert and
-88 of 256 weights differ between the int8 and half-precision paths on the same input.
+### The router switch in more detail
 
-**Cost.** This is a resolution switch, not a speed switch. Multi-row routing — including plain
-prompt prefill above three rows — runs the half-precision GEMM instead of the int8 tensor-core
-projection and is expected to be slower; no throughput is claimed for the mode. Do not set it under
-tensor parallelism: replicated routing depends on the deterministic projection to keep ranks
-identical, and with it displaced the ranks can select different experts. The value is read per call
-but each layer latches its state at its first routing call, so set it before loading a model.
+Above three rows the router uses the int8 deterministic projection (it exists so replicated
+tensor-parallel ranks agree bit-for-bit); single rows use the half-precision GEMV. The two are not
+interchangeable: on identical input and weights they produce different router scores and occasionally
+a different top-k expert. `EXL3_ROUTER_DET=0` installs an empty int8 gate, which makes
+`routing_gemm_det_fits()` false and also skips the RDNA multi-row branch, so every batch above three
+rows routes on the half-precision GEMM. Unset, or any value other than exactly `0`, preserves the
+historical behaviour.
 
-**Scope of the evidence.** One checkpoint, `router_type std`, one GPU, ROCm only; the greedy gate
-was validated with a single quality run per router state, and the switch still has no automated test
-because routing is not observable from Python. Treat it as an opt-in for verification-sensitive
-single-GPU serving, not a default.
+**Why it matters.** Speculative verification presents a whole draft window as one wide batch, so those
+tokens route through a different approximation than one-token decoding. On Ornith-1.5-122B EXL3
+(48 MoE layers, `router_type std`, single gfx1151) the 16-row DFlash2 window diverged from AR greedy
+decoding: a greedy-equivalence gate at tolerance 0.25 failed at 0.6875 (token 18) and 0.265625
+(token 43). With `EXL3_ROUTER_DET=0` the same gate passes — first divergence moves to token 27 at a
+0.03125 near-tie, and the prose prompt shows none. A loaded-router replay measured the mechanism
+directly: 420 of 8192 scores, one selected expert and 88 of 256 weights differ between the int8 and
+half-precision paths on the same input.
+
+**Cost and limits.** A resolution switch, not a speed switch: multi-row routing, including plain
+prompt prefill above three rows, runs the half-precision GEMM and is expected to be slower (not
+measured). Do not set it under tensor parallelism — replicated routing depends on the deterministic
+projection, and with it displaced ranks can select different experts. The value is read per call but
+each layer latches at its first routing call, so set it before loading. Evidence covers one
+checkpoint, `router_type std`, one GPU, ROCm only, with one quality run per router state; the switch
+has no automated test because routing is not observable from Python.
+
+### Tests added
+
+`tests/kernels/gemm/test_exl3_gemv_rowgroups.py` (+175), `test_exl3_mgemm_rowgroups.py` (+172),
+`test_exl3_route_trace.py` (+194), `test_exact_linear.py` (+136), plus a two-line change in
+`test_exl3_gemv.py`.
 
 ## Community
 
