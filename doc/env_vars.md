@@ -4,8 +4,8 @@ Runtime and build-time toggles recognized by ExLlamaV3. All of these have sensib
 they exist mainly for A/B testing, debugging and working around platform quirks.
 
 Boolean-ish variables treat `0` as off and any other value as on unless noted. C++-side
-variables are read once (on first use) and cached; Python-side variables are read at import
-time. Either way, set them before loading a model.
+variables are read once (on first use) and cached. Most Python-side variables are read at import
+time; entries that are read per call say so. Either way, set them before loading a model.
 
 A few defaults differ between the CUDA and ROCm builds. They are collected in
 `exllamav3/util/backend.py` (the C++ side holds the same values where it reads a variable itself):
@@ -954,6 +954,27 @@ rank and broadcasting the selection, while every other rank also routes locally 
 top-k selection and weights with the broadcast one; the mismatch counts (split by row class:
 single-row, other decode-sized, prefill) are printed at exit. Any mismatch means the streams or
 the router differ between ranks, so this is the acceptance test for changes to replicated paths.
+
+### `EXL3_ROUTER_DET` (default: `1`)
+
+Controls the multi-row router projection above three rows. When the deterministic int8 projection
+is available it is used for every batch larger than three rows (and the RDNA multi-row GEMV for
+up to three), which is what keeps replicated tensor-parallel ranks bit-identical without an extra
+broadcast. It is an approximation of the half-precision router, so on the same input and weights it
+can perturb scores — and occasionally the selected expert set — relative to the half-precision
+path used for single rows. Set to `0` to displace that projection: every batch above three rows
+then routes on the half-precision GEMM while batches of up to three rows keep the single-row GEMV.
+This matters for DFlash2 verification (a 15-token draft window is verified as one 16-row batch),
+which would otherwise route those tokens through a different approximation than one-token decoding
+does. It is a resolution switch, not a speed switch: those rows run the half-precision GEMM instead
+of the int8 tensor-core projection, which is expected to be slower, and no throughput is claimed
+for this mode. The value is read per call, but each layer latches its state at its first routing
+call (once the int8 projection is built it is not rebuilt, and once displaced it stays displaced),
+so set it before loading a model. It applies process-wide to every MoE layer, including plain
+prefill above three rows. The default is the historical behaviour and any value other than exactly
+`0` leaves it unchanged, so set it explicitly for verification-sensitive single-GPU serving. Do not
+set it under tensor parallelism: replicated routing relies on the deterministic projection to keep
+ranks bit-identical, and with it displaced the ranks can select different experts.
 
 ### `EXL3_TP_STREAM_HASH` (default: `0`)
 
