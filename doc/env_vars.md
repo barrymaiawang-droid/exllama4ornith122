@@ -383,6 +383,16 @@ calibrated acceptance estimate falls below the target (see `generator/draft_conf
 
 Overrides `draft_confidence`, the target acceptance probability used by the dynamic cut.
 
+### `EXL3_DRAFT_COST` (default: unset)
+
+With the dynamic window enabled and a DFlash drafter: replace the fixed-confidence cut with a cost-aware one.
+The value is a measured table of whole-round cost by verify rows (window + 1), e.g.
+`EXL3_DRAFT_COST="1:60.5,3:139.2,5:230.1,9:278.1,16:366.7"` (rows:ms, interpolated linearly). Each round, per
+row, the window w that maximizes expected tokens (1 + sum of the calibrated probabilities that the first i drafted
+positions all survive) divided by cost(w + 1) is chosen; the batch takes the longest. Before the calibrator's
+burn-in it behaves like the fixed cut (full windows). Measure the table on the target box with the same harness;
+the costs above are Ornith-1.5-122B on gfx1151 at shallow context.
+
 ## Sampling
 
 ### `EXL3_FUSED_SAMPLER` (default: `1`)

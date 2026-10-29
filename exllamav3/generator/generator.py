@@ -13,7 +13,7 @@ from ..util.memory import malloc_trim
 from .pagetable import PageTable, is_content_hash
 from .cpu_cache import CPUPageCache
 from .disk_cache import DiskPageCache
-from .draft_confidence import DraftConfidenceCalibrator
+from .draft_confidence import DraftConfidenceCalibrator, VerifyCostModel, cost_aware_window
 from .job import Job
 from .filter import Filter
 from concurrent.futures import ThreadPoolExecutor
@@ -423,6 +423,11 @@ class Generator:
         self._draft_conf_round = None
         if self.dynamic_draft and self.draft_model is not None:
             self.draft_calibrator = DraftConfidenceCalibrator(draft_confidence)
+        # Cost-aware dynamic cut (DFlash drafters): EXL3_DRAFT_COST = measured "rows:ms,..." round costs
+        self.draft_cost = None
+        cost_spec = os.environ.get("EXL3_DRAFT_COST")
+        if cost_spec and self.draft_calibrator is not None:
+            self.draft_cost = VerifyCostModel(cost_spec)
 
 
     def num_remaining_jobs(self):
@@ -1306,12 +1311,20 @@ class Generator:
         if self.draft_calibrator is not None and draft_conf is not None:
             conf = draft_conf[:batch_size, 1:].float().cpu()
             ids_full = new_ids[:batch_size, :].cpu()
-            thr = self.draft_calibrator.threshold()
-            below = conf[:, :window] < thr
-            any_below = below.any(dim = 1)
-            first_below = below.int().argmax(dim = 1)
-            cuts = torch.where(any_below, first_below, torch.full_like(first_below, window))
-            w_used = int(cuts.max().item())
+            if self.draft_cost is not None and self.draft_calibrator.total >= self.draft_calibrator.burn_in:
+                # Expected accepted tokens per ms, per row; the batch takes the longest row's choice
+                cal = self.draft_calibrator
+                w_used = 0
+                for r in range(conf.shape[0]):
+                    est = [cal.estimate(c) for c in conf[r, :window].tolist()]
+                    w_used = max(w_used, cost_aware_window(est, self.draft_cost))
+            else:
+                thr = self.draft_calibrator.threshold()
+                below = conf[:, :window] < thr
+                any_below = below.any(dim = 1)
+                first_below = below.int().argmax(dim = 1)
+                cuts = torch.where(any_below, first_below, torch.full_like(first_below, window))
+                w_used = int(cuts.max().item())
             self._draft_conf_round = {"ids": ids_full, "conf": conf, "window": w_used}
             if w_used == 0:
                 return None
