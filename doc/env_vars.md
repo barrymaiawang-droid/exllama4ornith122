@@ -33,6 +33,15 @@ parameter update until the exec is destroyed (an open HIP runtime issue); a spec
 server holds hundreds of execs, so disabling graphs there also frees over a gigabyte of VRAM.
 Set `EXL3_GRAPHS=1` on ROCm to test the graph path.
 
+### `EXL3_ATTN_SPLIT_TARGET` (default: `2`)
+
+Flash-decoding split target for the paged decode attention (BC_ATTN graph path and the eager Triton decode path),
+in programs per multiprocessor as torch reports it. Splits per call = target x multiprocessors / row programs,
+capped at 128. On RDNA torch reports WGPs (20 on gfx1151, 40 CUs), so `2` launches about one workgroup per CU;
+at a 9-row verify step (5 row programs per kv head with 16 sibling q heads) that is only 4 splits per head.
+Raise to `4` or `8` to sweep long-context decode. Changes the fp32 combine order of the split partials (not the
+per-split arithmetic), so outputs move at the last-ulp level.
+
 ### `EXL3_BC_ATTN` (default: `1`)
 
 Graph-captured C++ decode attention. For decode steps (bsz ≤ 8, q_len ≤ 16) the whole attention
@@ -360,6 +369,38 @@ Print every GEMM autotune candidate (shape, LDS, blocks per WGP before and after
 and synchronize after each probe and measurement launch, naming it first, so a launch that never
 completes is identified instead of hanging silently. Autotune-only; it does not affect tuned
 launches.
+
+## Speculative decoding
+
+Read once when the `Generator` is constructed. Unset keeps the constructor arguments.
+
+### `EXL3_DRAFT_TOKENS` (default: unset)
+
+Overrides `num_draft_tokens`, so a launcher that does not expose it can still choose the verify depth. With a
+DFlash drafter the drafter still runs its full diffusion block and only the verified window shrinks; the value is
+capped at the drafter's `default_draft_size` (`block_size - 1`). On a 256-expert top-8 MoE each extra verify row
+widens the set of distinct experts read, so shallow windows can be faster than the drafter's default. On ROCm,
+8 verify rows (`EXL3_DRAFT_TOKENS=7`) is the widest window that keeps the MoE (`MAX_BSZN`), the two-matrix GEMV
+(`EXL3_MGEMV_MAX_M`) and the router on their weight-once, AR-identical tiers.
+
+### `EXL3_DYNAMIC_DRAFT` (default: unset)
+
+`1` / `0` overrides `dynamic_draft_tokens`: cut each round's verify window at the first draft position whose
+calibrated acceptance estimate falls below the target (see `generator/draft_confidence.py`).
+
+### `EXL3_DRAFT_CONFIDENCE` (default: unset)
+
+Overrides `draft_confidence`, the target acceptance probability used by the dynamic cut.
+
+### `EXL3_DRAFT_COST` (default: unset)
+
+With the dynamic window enabled and a DFlash drafter: replace the fixed-confidence cut with a cost-aware one.
+The value is a measured table of whole-round cost by verify rows (window + 1), e.g.
+`EXL3_DRAFT_COST="1:60.5,3:139.2,5:230.1,9:278.1,16:366.7"` (rows:ms, interpolated linearly). Each round, per
+row, the window w that maximizes expected tokens (1 + sum of the calibrated probabilities that the first i drafted
+positions all survive) divided by cost(w + 1) is chosen; the batch takes the longest. Before the calibrator's
+burn-in it behaves like the fixed cut (full windows). Measure the table on the target box with the same harness;
+the costs above are Ornith-1.5-122B on gfx1151 at shallow context.
 
 ## Sampling
 

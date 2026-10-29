@@ -108,3 +108,61 @@ class DraftConfidenceCalibrator:
         k = below[-1] if below else populated[0]
         tested, accepted = self.bins[k]
         return accepted / tested
+
+
+class VerifyCostModel:
+    """
+    Per-round cost as a function of verify rows (drafted window + 1), from a measured table such as
+    "1:60.5,3:139,5:230,9:278,16:367" (rows:ms, one process, same harness). Linear interpolation between
+    points, linear extrapolation past the ends. Used by the cost-aware draft cut: on a wide MoE the verify
+    cost grows with the number of distinct experts the window touches, so the window that maximizes
+    expected accepted tokens per millisecond is often much shorter than the one a fixed acceptance
+    threshold keeps.
+    """
+
+    def __init__(self, spec: str):
+        pts = []
+        for item in spec.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            r, ms = item.split(":")
+            pts.append((int(r), float(ms)))
+        assert len(pts) >= 2, "EXL3_DRAFT_COST needs at least two rows:ms points"
+        pts.sort()
+        assert all(ms > 0 for _, ms in pts), "EXL3_DRAFT_COST: costs must be positive"
+        self.pts = pts
+
+    def __call__(self, rows: int) -> float:
+        pts = self.pts
+        if rows <= pts[0][0]:
+            (r0, c0), (r1, c1) = pts[0], pts[1]
+        elif rows >= pts[-1][0]:
+            (r0, c0), (r1, c1) = pts[-2], pts[-1]
+        else:
+            i = next(i for i in range(1, len(pts)) if pts[i][0] >= rows)
+            (r0, c0), (r1, c1) = pts[i - 1], pts[i]
+        c = c0 + (c1 - c0) * (rows - r0) / (r1 - r0)
+        return max(c, 1e-3)
+
+
+def cost_aware_window(estimates: list[float], cost: VerifyCostModel) -> int:
+    """
+    Window w (1..len(estimates)) maximizing expected tokens per round / cost(w + 1), where expected tokens
+    is 1 (the bonus / corrected token) plus the sum over i < w of the probability that drafted positions
+    0..i are all accepted (estimates are conditional acceptance probabilities per position). The drafter
+    has already run when this is decided, so w = 0 (falling back to a plain AR step) is never chosen: the
+    table's costs are whole rounds including the drafter, which a skipped verify would still have paid.
+    """
+    if not estimates:
+        return 0
+    surv = max(0.0, min(1.0, estimates[0]))
+    exp_tokens = 1.0 + surv
+    best_w, best_rate = 1, exp_tokens / cost(2)
+    for i, p in enumerate(estimates[1:], start = 1):
+        surv *= max(0.0, min(1.0, p))
+        exp_tokens += surv
+        rate = exp_tokens / cost(i + 2)
+        if rate > best_rate:
+            best_w, best_rate = i + 1, rate
+    return best_w

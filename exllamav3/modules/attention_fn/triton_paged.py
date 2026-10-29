@@ -1269,7 +1269,8 @@ def paged_attn_triton_decode(
     dev = q.device.index
     if dev not in _decode_sm_count:
         _decode_sm_count[dev] = torch.cuda.get_device_properties(q.device).multi_processor_count
-    target = 2 * _decode_sm_count[dev]
+    from ...util.backend import ATTN_SPLIT_TARGET
+    target = ATTN_SPLIT_TARGET * _decode_sm_count[dev]
 
     def prepare(block_n):
         """Split count, partial buffers and the split kernel's argument list for one kv tile."""

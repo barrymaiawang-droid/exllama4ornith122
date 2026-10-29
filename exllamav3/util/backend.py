@@ -62,6 +62,12 @@ HC_FOLD = _env("EXL3_HC_FOLD", 0, 1) != "0"
 # keeps the pair below
 ATTN_SPLIT_WARPS_STAGES = (8, 1) if ROCM else (4, 2)
 
+# Flash-decoding split target, in programs per multiprocessor as torch reports it. Torch counts WGPs on RDNA
+# (20 on gfx1151, which has 40 CUs), so the historical 2 launches about one 8-wave workgroup per CU; at
+# speculative verify widths (several row programs per kv head) that leaves only a handful of splits, each
+# streaming a long serial slice of a 32k context. EXL3_ATTN_SPLIT_TARGET raises it for sweeps
+ATTN_SPLIT_TARGET = max(1, int(os.environ.get("EXL3_ATTN_SPLIT_TARGET", "2")))
+
 
 def attn_decode_config(device, hd_pad: int) -> tuple[int, int, int]:
     """(block_n, num_warps, num_stages) for the paged decode attention split kernel; block_n is the
