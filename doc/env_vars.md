@@ -361,6 +361,28 @@ and synchronize after each probe and measurement launch, naming it first, so a l
 completes is identified instead of hanging silently. Autotune-only; it does not affect tuned
 launches.
 
+## Speculative decoding
+
+Read once when the `Generator` is constructed. Unset keeps the constructor arguments.
+
+### `EXL3_DRAFT_TOKENS` (default: unset)
+
+Overrides `num_draft_tokens`, so a launcher that does not expose it can still choose the verify depth. With a
+DFlash drafter the drafter still runs its full diffusion block and only the verified window shrinks; the value is
+capped at the drafter's `default_draft_size` (`block_size - 1`). On a 256-expert top-8 MoE each extra verify row
+widens the set of distinct experts read, so shallow windows can be faster than the drafter's default. On ROCm,
+8 verify rows (`EXL3_DRAFT_TOKENS=7`) is the widest window that keeps the MoE (`MAX_BSZN`), the two-matrix GEMV
+(`EXL3_MGEMV_MAX_M`) and the router on their weight-once, AR-identical tiers.
+
+### `EXL3_DYNAMIC_DRAFT` (default: unset)
+
+`1` / `0` overrides `dynamic_draft_tokens`: cut each round's verify window at the first draft position whose
+calibrated acceptance estimate falls below the target (see `generator/draft_confidence.py`).
+
+### `EXL3_DRAFT_CONFIDENCE` (default: unset)
+
+Overrides `draft_confidence`, the target acceptance probability used by the dynamic cut.
+
 ## Sampling
 
 ### `EXL3_FUSED_SAMPLER` (default: `1`)

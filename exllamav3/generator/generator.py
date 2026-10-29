@@ -21,6 +21,12 @@ from .sampler import Sampler
 from .visualizer import CacheVisualizer
 import time
 import threading
+import os
+
+
+def _env_int(name: str) -> int | None:
+    v = os.environ.get(name)
+    return int(v) if v not in (None, "") else None
 from ..tokenizer import MMEmbedding
 from ..util import profile_opt
 
@@ -238,6 +244,13 @@ class Generator:
                 # drafter's sliding-window rings take the projected rows directly. MTP heads with
                 # recurrent layers have neither path yet
                 assert not draft_model.caps.get("mtp_draft"), "Recurrent MTP draft models are not supported."
+            # Deployment override (EXL3_DRAFT_TOKENS): lets a frozen launcher pick the verify depth
+            # without code changes. A DFlash drafter still runs its full block; only the verified window
+            # shrinks, so the value is capped at the drafter's own default_draft_size
+            env_ndt = _env_int("EXL3_DRAFT_TOKENS")
+            if env_ndt is not None:
+                cap = draft_model.caps.get("default_draft_size") if draft_model.caps.get("dflash_draft") else None
+                num_draft_tokens = min(env_ndt, cap) if cap else env_ndt
             if num_draft_tokens:
                 self.num_draft_tokens = num_draft_tokens
             else:
@@ -262,6 +275,12 @@ class Generator:
         # The widest verification pass any round can take: the regular drafter's window or a hybrid draft
         self.hybrid_draft_tokens = max(0, hybrid_draft_tokens or 0)
         self.max_draft_tokens = max(self.num_draft_tokens, self.hybrid_draft_tokens)
+        env_dyn = _env_int("EXL3_DYNAMIC_DRAFT")
+        if env_dyn is not None:
+            dynamic_draft_tokens = env_dyn != 0
+        env_conf = os.environ.get("EXL3_DRAFT_CONFIDENCE")
+        if env_conf:
+            draft_confidence = float(env_conf)
         self.dynamic_draft = dynamic_draft_tokens and self.num_draft_tokens > 0
         self.record_draft_stats = record_draft_stats
         max_q_size = max(self.max_draft_tokens + 1, max_q_size)
