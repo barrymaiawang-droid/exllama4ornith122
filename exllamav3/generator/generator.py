@@ -723,6 +723,7 @@ class Generator:
                         "max_new_tokens"  (max_new_tokens reached)
                         "end_filter"  (filter reached end state with eos_after_completed = True)
                         "loop_detected"  (loop detection triggered)
+                        "repetition"  (repetition guard stopped the job, see Job(repetition_guard = ...))
                     optional, if "eos_reason" == "stop_token":
                         "eos_triggering_token_id": int
                         "eos_triggering_token_str": str
@@ -2201,6 +2202,7 @@ class Generator:
         embeddings: list[MMEmbedding] | list[list[MMEmbedding]] | None = None,
         max_rq_tokens: int | None = None,
         stop_on_loop: tuple[int, int] = None,
+        repetition_guard: dict | bool | None = None,
         **kwargs
     ):
         """
@@ -2270,6 +2272,9 @@ class Generator:
             Tuple of (window_size: int, min_reps: int), or None. If enabled, generation will end if the last
             window_size tokens sampled make up >= min_reps consecutive instances of a looping string.
 
+        :param repetition_guard:
+            Opt-in repetition guard, True or an options dict; see Job and generator/repetition_guard.py.
+
         :return:
             Completion(s): (str or list[str] depending on the type of the input prompt argument)
             Optionally, last results: (dict or list[dict] depending on the type of the input prompt argument)
@@ -2337,6 +2342,7 @@ class Generator:
                 embeddings = embeddings[idx] or [],
                 max_rq_tokens = max_rq_tokens,
                 stop_on_loop = stop_on_loop,
+                repetition_guard = repetition_guard,
             )
 
             if seed is not None: seed += 1

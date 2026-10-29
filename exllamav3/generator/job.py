@@ -11,6 +11,7 @@ import random
 import time
 from ..ext import exllamav3_ext as ext
 from .loop_detect import LoopDetector
+from .repetition_guard import RepetitionGuard
 from .sampler import Sampler, DefaultSampler
 from ..util.tensor import SeqTensor
 from ..tokenizer import MMEmbedding
@@ -71,6 +72,7 @@ class Job:
         embeddings: list[MMEmbedding] | None = None,
         max_rq_tokens: int | None = None,
         stop_on_loop: tuple[int, int] = None,
+        repetition_guard: dict | bool | None = None,
         rq_state: dict | None = None,
         **kwargs
     ):
@@ -144,6 +146,15 @@ class Job:
             Tuple of (window_size: int, min_reps: int), or None. If enabled, generation will end if the last
             window_size tokens sampled make up >= min_reps consecutive instances of a looping string.
 
+        :param repetition_guard:
+            Opt-in repetition guard (generator/repetition_guard.py): True for the defaults, or a dict of options
+            (mode "active" or "shadow", min_match, confirm, max_interventions, escalate_within, nudge). Detects
+            the job copying its own output, holds the copy back from the stream, and on confirmation rolls the
+            job back and bans the copied token for one step, then rolls back and injects a hidden nudge, then
+            ends the job with eos_reason "repetition". Nothing already streamed is ever retracted. "shadow"
+            only detects and logs. Interventions are reported as "repetition_guard_event" on stream events and
+            summarized under "repetition_guard" on the final result. Default None: off, output is unchanged.
+
         :param rq_state:
             Internal, passed when job requeues itself
 
@@ -184,6 +195,10 @@ class Job:
         self.forced_ids_device = None
         self.forced_sample = False
         self.filters_suspended = rq_state.get("filters_suspended", False)
+        # Leading forced tokens that are hidden (the repetition guard's nudge): fed to the model, kept out of
+        # the client's text, token ids and completion
+        self.forced_hidden_n = rq_state.get("forced_hidden_n", 0)
+        self.forced_sample_hidden = False
 
         # Sampling state
         self.held_text = rq_state.get("held_text", "")
@@ -316,6 +331,11 @@ class Job:
             assert window_size > 1, "Loop detector window size cannot be less than 1"
             assert 1 < min_reps < window_size, "Number of reps must be > 1, < window_size"
             self.loop_detector = LoopDetector(window_size, window_size // min_reps)
+
+        # Repetition guard (repetition_guard.py); one object for the logical job, carried across requeues
+        self.repetition_guard = rq_state.get("repetition_guard")
+        if self.repetition_guard is None and repetition_guard:
+            self.repetition_guard = RepetitionGuard(repetition_guard)
 
         # N-gram automaton
         self.sam = rq_state.get("sam", None)
@@ -537,6 +557,9 @@ class Job:
 
         if self.forced_ids is not None:
             ids = torch.cat((self.forced_ids[:, self.forced_index:], ids), dim = -1)
+            self.forced_hidden_n = max(0, self.forced_hidden_n - self.forced_index)
+        else:
+            self.forced_hidden_n = 0
         self.forced_ids = ids
         self.forced_index = 0
         self.forced_ids_device = None
@@ -716,13 +739,28 @@ class Job:
         if self.forced_ids_device is None:
             self.forced_ids_device = self.forced_ids.to(device)
         next_token = self.forced_ids_device[:, self.forced_index : self.forced_index + 1]
+        self.forced_sample_hidden = self.forced_index < self.forced_hidden_n
         self.forced_index += 1
         self.forced_sample = True
         if self.forced_index >= self.forced_ids.shape[-1]:
             self.forced_ids = None
             self.forced_ids_device = None
             self.forced_index = 0
+            self.forced_hidden_n = 0
         return next_token
+
+
+    def _inject_hidden(self, ids: torch.Tensor):
+        """
+        Queue forced tokens the client never sees (the repetition guard's nudge): they are sampled like
+        constrain_output_now() tokens but skipped by the output buffers. Only called when no injection is
+        pending and the job has no filters, so neither has to be reconciled.
+        """
+        assert self.forced_ids is None
+        self.forced_ids = ids.to("cpu", torch.long)
+        self.forced_index = 0
+        self.forced_ids_device = None
+        self.forced_hidden_n = self.forced_ids.shape[-1]
 
 
     def receive_logits(
@@ -802,6 +840,8 @@ class Job:
         next_token_i = next_token.item()
         forced_sample = self.forced_sample
         self.forced_sample = False
+        hidden_sample = forced_sample and self.forced_sample_hidden
+        self.forced_sample_hidden = False
 
         # Activate/advance filters if not healing
         filter_eos_condition = False
@@ -846,7 +886,8 @@ class Job:
             suppressed_tokens = None,
             stop_token: int = None,
             stop_string: str = None,
-            rem_held_text: str = None
+            rem_held_text: str = None,
+            guard_event: dict = None
         ):
             nonlocal requeue_now
 
@@ -914,6 +955,9 @@ class Job:
                 r.update({ "suppressed_text": suppressed_text })
                 r.update({ "suppressed_tokens": suppressed_tokens.torch() })
 
+            if guard_event is not None:
+                r.update({ "repetition_guard_event": guard_event })
+
             if emit_eos or requeue_now:
                 # Nothing can be rewound past this point, so pages deferred by a held checkpoint are final
                 self.hash_deferred_pages()
@@ -943,6 +987,12 @@ class Job:
                         "accepted_draft_tokens": self.accepted_draft_tokens,
                         "rejected_draft_tokens": self.rejected_draft_tokens
                     })
+                if self.repetition_guard is not None:
+                    # Hidden nudge tokens are in new_tokens (they were sampled); visible_new_tokens is what
+                    # the client received
+                    r.update({ "repetition_guard": self.repetition_guard.summary(
+                        visible_new_tokens = self.rq_new_tokens + self.new_tokens - self.repetition_guard.injected_tokens
+                    ) })
                 if eos_reason == "stop_string":
                     self.held_text = rem_held_text
                 rh = {}
@@ -966,6 +1016,15 @@ class Job:
             results_.append(r)
             return emit_eos, next_token, requeue_now
 
+        # Hidden forced tokens (the repetition guard's nudge) are in the model's context and nowhere in the
+        # client's output: no text, token ids or probabilities, no stop-condition checks (they are not
+        # stop tokens by construction). The guard still sees them, so its output positions stay aligned
+        # with the sequence
+        if hidden_sample:
+            if self.repetition_guard is not None:
+                self.repetition_guard.feed(next_token_i)
+            return emit(results, guard_event = { "hidden_token_id": next_token_i })
+
         # Decode and buffer output
         id_to_piece = self.generator.tokenizer.get_id_to_piece_list(self.decode_special_tokens)
         new_text = id_to_piece[next_token.item()]
@@ -986,6 +1045,13 @@ class Job:
             self.held_logits.append(logits[:1, :, :])
 
         token = next_token.item()
+
+        # The repetition guard sees every token here, before any early return below, so a token held for an
+        # incomplete character or ending the job still counts; it acts further down, once the banned-string
+        # hold has had its say
+        guard_event = None
+        if self.repetition_guard is not None and self.new_tokens > 0:
+            guard_event = self.repetition_guard.feed(token)
 
         # End on stop tokens
         if token in self.stop_tokens:
@@ -1015,13 +1081,20 @@ class Job:
             self.held_text = test_decode
 
         # Hold text as long as it contains part of a banned string
-        def unset_checkpoint():
+        # The checkpoint is shared by the banned-string hold and the repetition guard; whoever sets it
+        # owns it, only the owner releases it, and a rewind by either restores the whole hold
+        def unset_checkpoint(owner: str | None = None):
+            if self.checkpoint is None:
+                return
+            if owner is not None and self.checkpoint.get("owner") != owner:
+                return
             self.hash_deferred_pages()
             self.checkpoint = None
 
-        def set_checkpoint():
+        def set_checkpoint(owner: str = "banned"):
             if self.checkpoint is None:
                 self.checkpoint = {
+                    "owner": owner,
                     "offset": 1,
                     "held_text": held_text_before,   # not held_text[:-len(new_text)]: new_text may be empty
                     "held_tokens": self.held_tokens.clone(1),
@@ -1127,7 +1200,7 @@ class Job:
             return off_tokens, off_text
 
         if requeue_now:
-            unset_checkpoint()
+            unset_checkpoint(None)
 
         # Banned-string matching is suspended for forced tokens (and while more remain queued), so a
         # rewind can never truncate an injection
@@ -1143,7 +1216,7 @@ class Job:
                 self.banned_strings_utf32_buffer
             )
             if match >= 0:
-                set_checkpoint()
+                set_checkpoint("banned")
                 offending_tokens, offending_text = rewind_checkpoint()
                 return emit(
                     results,
@@ -1152,10 +1225,68 @@ class Job:
                     suppressed_tokens = offending_tokens
                 )
             elif match == -2:
-                set_checkpoint()
+                set_checkpoint("banned")
                 return emit(results)
             else:
-                unset_checkpoint()
+                unset_checkpoint("banned")
+
+        # Repetition guard (repetition_guard.py). Suspicion holds output exactly like a partial banned-string
+        # match; a confirmed copy rolls back to the first held token with that token banned for one step
+        # (tier 1), then with the hidden nudge injected after the rollback (tier 2), then ends the job
+        # (tier 3). Forced tokens, pending injections and a hold owned by the banned-string matcher are
+        # never acted on; the copy is noted and the detector re-armed
+        guard = self.repetition_guard
+        if guard is not None and guard_event is not None and guard_event.kind != "none":
+            may_act = (
+                guard.active
+                and not requeue_now
+                and not forced_sample
+                and self.forced_ids is None
+                and (self.checkpoint is None or self.checkpoint.get("owner") == "guard")
+            )
+            # A copy that broke on this token releases its hold before any new suspicion starting here
+            # takes one: the released tokens are legitimate output, and the new hold begins at this token
+            if may_act and guard_event.released:
+                unset_checkpoint("guard")
+            if may_act and guard_event.kind in ("suspect", "extend"):
+                set_checkpoint("guard")
+                return emit(results)
+            if may_act and guard_event.kind == "release":
+                unset_checkpoint("guard")
+            elif guard_event.kind == "confirm":
+                if not may_act:
+                    guard.observe(guard_event)
+                else:
+                    set_checkpoint("guard")
+                    tier = guard.plan(allow_nudge = not self.filters)
+                    nudge = guard.nudge_ids(self.generator.tokenizer) if tier == 2 else None
+                    if tier == 2 and nudge is None:
+                        tier = 1
+                    offending_tokens, offending_text = rewind_checkpoint()
+                    guard.truncate(len(guard.detector) - len(offending_tokens))
+                    injected = 0
+                    if tier == 2:
+                        self._inject_hidden(nudge)
+                        injected = nudge.shape[-1]
+                    rec = guard.record(
+                        tier, guard_event,
+                        rollback_tokens = len(offending_tokens),
+                        injected_tokens = injected,
+                        discarded_text = offending_text,
+                    )
+                    return emit(
+                        results,
+                        emit_eos = tier == 3,
+                        emit_held = True,
+                        eos_reason = "repetition" if tier == 3 else None,
+                        suppressed_text = offending_text,
+                        suppressed_tokens = offending_tokens,
+                        guard_event = rec,
+                    )
+        elif guard is not None and self.checkpoint is not None and self.checkpoint.get("owner") == "guard" \
+                and not forced_sample:
+            # No suspicion this token: a rollback's one-step ban (offset 0) has served, release the checkpoint
+            unset_checkpoint("guard")
 
         # End on stop strings
         if self.stop_strings_utf32_offsets is not None:
@@ -1230,7 +1361,9 @@ class Job:
                 self.cached_pages, self.cached_pages * PAGE_SIZE + self.cached_tokens),
             "sam": self.sam,
             "forced_ids": None if self.forced_ids is None else self.forced_ids[:, self.forced_index:],
+            "forced_hidden_n": 0 if self.forced_ids is None else max(0, self.forced_hidden_n - self.forced_index),
             "filters_suspended": self.filters_suspended,
+            "repetition_guard": self.repetition_guard,
         }
 
         serial_number = self.serial_number
