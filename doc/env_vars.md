@@ -33,6 +33,15 @@ parameter update until the exec is destroyed (an open HIP runtime issue); a spec
 server holds hundreds of execs, so disabling graphs there also frees over a gigabyte of VRAM.
 Set `EXL3_GRAPHS=1` on ROCm to test the graph path.
 
+### `EXL3_ATTN_SPLIT_TARGET` (default: `2`)
+
+Flash-decoding split target for the paged decode attention (BC_ATTN graph path and the eager Triton decode path),
+in programs per multiprocessor as torch reports it. Splits per call = target x multiprocessors / row programs,
+capped at 128. On RDNA torch reports WGPs (20 on gfx1151, 40 CUs), so `2` launches about one workgroup per CU;
+at a 9-row verify step (5 row programs per kv head with 16 sibling q heads) that is only 4 splits per head.
+Raise to `4` or `8` to sweep long-context decode. Changes the fp32 combine order of the split partials (not the
+per-split arithmetic), so outputs move at the last-ulp level.
+
 ### `EXL3_BC_ATTN` (default: `1`)
 
 Graph-captured C++ decode attention. For decode steps (bsz ≤ 8, q_len ≤ 16) the whole attention

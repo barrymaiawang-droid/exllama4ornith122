@@ -1,7 +1,7 @@
 import os
 
 import torch
-from ...util.backend import ROCM, ATTN_SPLIT_WARPS_STAGES, attn_decode_config
+from ...util.backend import ROCM, ATTN_SPLIT_WARPS_STAGES, ATTN_SPLIT_TARGET, attn_decode_config
 
 from ...ext import exllamav3_ext as ext
 from ...constants import PAGE_SIZE
@@ -325,7 +325,7 @@ class BCAttn:
 
         # The live split count and split length are runtime kernel arguments derived from the
         # block-table bound per call (patched into the graph); the grid is sized to the cap
-        target = 2 * _get_sm_count(dev)
+        target = ATTN_SPLIT_TARGET * _get_sm_count(dev)
         splits_cap = max(1, min(target // programs, 128))
         window_left, window_right = _normalize_window(self.window_size)
 
