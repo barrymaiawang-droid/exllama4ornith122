@@ -84,8 +84,10 @@ def det_router_enabled():
     is an approximation of the half-precision router: on the same input and weights it perturbs
     scores, and occasionally the selected expert set, relative to the half-precision path. With
     EXL3_ROUTER_DET=0 the projection is displaced by an empty int8 gate, which makes
-    routing_gemm_det_fits() false and also skips the RDNA multi-row GEMV, so every batch above 3
-    routes on the half-precision GEMM while batches <= 3 keep the single-row GEMV. Unset keeps the
+    routing_gemm_det_fits() false. On ROCm the empty marker counts as "no int8 gate", so batches
+    of 1..16 rows (speculative verify windows) route on the RDNA router GEMV, whose per-row FMA
+    chain is the single-row kernel's: verify rows score bit-identically to AR decoding. Larger
+    batches (prompt prefill) route on the half-precision GEMM. Unset keeps the
     historical behaviour, so existing deployments and measurements are unchanged.
     """
     return os.environ.get("EXL3_ROUTER_DET", "1") != "0"

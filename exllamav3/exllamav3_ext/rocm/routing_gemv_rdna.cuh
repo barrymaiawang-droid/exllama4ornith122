@@ -1,6 +1,6 @@
 #pragma once
 
-// RDNA router GEMV for m = 1..8 rows, taken by routing_gemv (routing.cu) on ROCm. Same arithmetic as
+// RDNA router GEMV for m = 1..16 rows (9..16 as two 8-row launches), taken by routing_gemv (routing.cu) on ROCm. Same arithmetic as
 // routing_gemv_kernel (lane l owns the half2 columns j = l mod 32, accumulated in increasing j with the same
 // two fmaf per column, then the same shfl_down tree), so the scores are bit-identical to it; what changes is
 // the scheduling: several column loads in flight per lane, two-wave blocks spread over every CU, and, at
@@ -201,11 +201,29 @@ static inline bool routing_gemv_rdna_try(const at::Tensor& hidden, const at::Ten
     const int E = (int) scores.size(-1);
     if ((k & 1) || !hidden.is_contiguous() || !gate_t.is_contiguous()) return false;
     const int m = (int) (hidden.numel() / k);
-    if (m < 1 || m > 8 || scores.numel() != (int64_t) m * E) return false;
+    if (m < 1 || m > 16 || scores.numel() != (int64_t) m * E) return false;
+    if (!scores.is_contiguous()) return false;
 
     const half* xp = (const half*) hidden.data_ptr();
     const half* wp = (const half*) gate_t.data_ptr();
     half* sp = (half*) scores.data_ptr();
+
+    // 9..16 rows (deep speculative verify): two independent <= 8-row launches. Every row's chain is the
+    // single-row kernel's (lane l accumulates columns l mod 32 in increasing order, then the same shfl tree),
+    // so splitting changes scheduling only, never a score bit
+    if (m > 8)
+    {
+        const dim3 grid(CEIL_DIVIDE(E, RG_WARPS));
+        const dim3 block(RG_WARPS * 32);
+        routing_gemv_rdna_kernel<8><<<grid, block, 0, stream>>>(xp, wp, sp, k, E, 8);
+        const int m2 = m - 8;
+        const half* xp2 = xp + (size_t) 8 * k;
+        half* sp2 = sp + (size_t) 8 * E;
+        if (m2 <= 2)      routing_gemv_rdna_kernel<2><<<grid, block, 0, stream>>>(xp2, wp, sp2, k, E, m2);
+        else if (m2 <= 4) routing_gemv_rdna_kernel<4><<<grid, block, 0, stream>>>(xp2, wp, sp2, k, E, m2);
+        else              routing_gemv_rdna_kernel<8><<<grid, block, 0, stream>>>(xp2, wp, sp2, k, E, m2);
+        return true;
+    }
     const size_t smem_w = (size_t) (k / 2 + RGW_WARPS * RGW_U * 128) * 4;
     if (m == 1 && !(k & 7) && !(((uintptr_t) xp | (uintptr_t) wp) & 15) && smem_w <= 48 * 1024)
     {
