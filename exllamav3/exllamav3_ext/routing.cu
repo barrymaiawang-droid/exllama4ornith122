@@ -272,11 +272,17 @@ void routing_gemv
     // RDNA: the m = 1..8 router GEMV (rocm/routing_gemv_rdna.cuh). It reads the weights once per row block, so
     // with the deterministic projection available it only takes the smallest row counts, where it is faster;
     // both are fixed-order and agree across devices
-    if (gate_t.has_value() && (!gate_i8.has_value() || hidden.numel() / k <= 3) &&
+    //
+    // EXL3_ROUTER_DET=0 displaces the int8 gate with an EMPTY tensor (block_sparse_mlp_routing.py), which still
+    // has_value(). Treat that marker as "no deterministic projection": every row count the GEMV covers (1..16,
+    // 9..16 as two independent 8-row launches) then routes on the same per-row FMA chain as the single-row path,
+    // so speculative verify rows select bit-identically to AR decoding instead of falling to the rocBLAS hgemm
+    const bool det_gate = gate_i8.has_value() && gate_i8.value().numel() > 0;
+    if (gate_t.has_value() && (!det_gate || hidden.numel() / k <= 3) &&
         routing_gemv_rdna_try(hidden, gate_t.value(), scores, stream)) return;
 #endif
 
-    if (!bsz1 && gate_i8.has_value() && gate_sb.has_value() && routing_gemm_det_fits(hidden, gate_i8.value(), gate_sb.value(), scores))
+    if (!bsz1 && gate_i8.has_value() && gate_i8.value().numel() > 0 && gate_sb.has_value() && routing_gemm_det_fits(hidden, gate_i8.value(), gate_sb.value(), scores))
     {
         routing_gemm_det_(hidden, gate_i8.value(), gate_sb.value(), scores, stream);
     }
