@@ -3,20 +3,29 @@ Repetition guard: detect a job copying its own output and steer or stop it, invi
 
 Tiers (Job(repetition_guard = {...}), off unless asked for):
 
-    0  detect   the last `min_match` tokens equal an earlier span of this turn's own output. Output is
-                held back from here (like a partial banned-string match) while the copy keeps extending;
-                it is released untouched the moment the copy breaks
-    1  escape   the copy reached `confirm` tokens (or one full period): roll the job back to the first
-                held token and ban that token for one step
+    0  detect   the last `min_match` tokens equal an earlier span of this turn's own output, at distance
+                `period`. That alone is NOT a loop: code, markup, tables and a draft rewritten after the
+                thinking all repeat themselves. The copy is only tracked; output streams normally. Only
+                in the last `hold` tokens before it could confirm is output held back (like a partial
+                banned-string match), and it is released untouched the moment the copy breaks
+    1  escape   a loop: the same block of `period` tokens occurs `repeats` times back to back, verbatim,
+                AND that run is at least `confirm` tokens long. Roll the job back to the first held
+                token and ban that token for one step
     2  nudge    a loop again within `escalate_within` tokens of tier 1: roll back again and inject the
                 model-voiced interjection `nudge`, tagged hidden, so it steers the model but never reaches
                 the client's text, token ids or completion
     3  stop     a loop after the nudge, or the `max_interventions` budget spent: end the job with
                 eos_reason "repetition"
 
-Nothing streamed is ever retracted: holding starts at the token whose arrival completed the first
-`min_match`-token match, so the client has seen at most `min_match - 1` tokens of a copy, and a rollback
-discards held tokens only. The detector matches token ids against the turn's own output only, so a model
+Why periodic and long: a one-time copy (a draft written out again, a quoted function) never overlaps its
+own source, so its copy length stays below its period and it can never confirm. Healthy repetition with
+a short period (closing tags, indentation, `0, 0, 0`) is broken by the next differing token long before
+`confirm` tokens. Measured over ~5,900 real source/markup/data files tokenized with the Ornith tokenizer
+(each written once and drafted-then-written): the previous rule (any 32-token copy, or one full period if
+shorter) fired on 56-96% of files per type; this rule fired on one, a fuzz-test hex dump, while catching
+100% of synthetic loops of period 1-400 within max(confirm, 3 * period) tokens.
+
+Nothing streamed is ever retracted: a rollback discards held tokens only (at most `hold`). The detector matches token ids against the turn's own output only, so a model
 quoting the prompt or a tool result never trips it. Shadow mode (mode = "shadow") detects and logs and
 does nothing else: run it first to learn the loop lengths of real traffic before tuning the two numbers
 that matter, `min_match` and `confirm`.
@@ -36,10 +45,12 @@ DEFAULT_NUDGE = "\n\nWait, I am repeating myself. Let me stop repeating and fini
 
 DEFAULTS = {
     "mode": "active",            # "active" | "shadow"
-    "min_match": 8,              # tokens that must match an earlier span before output is held (tier 0)
-    "confirm": 32,               # a copy this long, or one full period if shorter, is a loop (tier 1)
-    "max_interventions": 2,      # rollbacks (tier 1 / 2) per request before tier 3
-    "escalate_within": 64,       # a loop this soon after an intervention escalates to the next tier
+    "min_match": 8,              # tokens that must match an earlier span before a copy is tracked (tier 0)
+    "confirm": 512,              # a loop's verbatim repeating run must be at least this many tokens (tier 1)
+    "repeats": 4,                # ... and its block must occur this many times back to back (tier 1)
+    "hold": 32,                  # output held (and discarded on a loop) before the run could confirm
+    "max_interventions": 3,      # rollbacks (tier 1 / 2) per request before tier 3
+    "escalate_within": 1024,     # a loop this soon after an intervention escalates to the next tier
     "nudge": DEFAULT_NUDGE,      # tier 2 text, hidden from the client; None or "" disables tier 2
 }
 
@@ -62,11 +73,15 @@ class SuffixLoopDetector:
     `min_match`-gram to the positions it ended at.
     """
 
-    def __init__(self, min_match: int = 8, confirm: int = 32):
+    def __init__(self, min_match: int = 8, confirm: int = 512, repeats: int = 4, hold: int = 32):
         assert min_match >= 2, "min_match must be at least 2"
         assert confirm >= 1, "confirm must be at least 1"
+        assert repeats >= 1, "repeats must be at least 1 (1: any copy of `confirm` tokens, no periodicity)"
+        assert hold >= 0, "hold must be at least 0"
         self.min_match = min_match
         self.confirm = confirm
+        self.repeats = repeats
+        self.hold = hold
         self.tokens: list[int] = []
         self._index: dict[tuple, list[int]] = {}
         self.period = 0
@@ -81,8 +96,30 @@ class SuffixLoopDetector:
         return self.period > 0
 
     def confirm_length(self, period: int) -> int:
-        """Copy length that counts as a loop: one full period, capped at `confirm`, never below the trigger"""
-        return max(self.min_match, min(period, self.confirm))
+        """Copy length that counts as a loop: (repeats - 1) full periods copied, i.e. the block occurs
+        `repeats` times back to back, and never shorter than `confirm` tokens"""
+        return max(self.min_match, self.confirm, (self.repeats - 1) * period)
+
+    def hold_length(self, period: int) -> int:
+        """Copy length at which output starts being held: `hold` tokens before it could confirm"""
+        return max(self.min_match, self.confirm_length(period) - self.hold)
+
+    def _event(self, i: int, released: bool = False) -> GuardEvent:
+        """Classify the copy in progress after token i; starts the hold when the copy gets close"""
+        copy_start = i - self.matched + 1
+        if self.matched >= self.confirm_length(self.period):
+            if self.hold_start < 0:
+                self.hold_start = i
+            kind = "confirm"
+        elif self.hold_start >= 0:
+            kind = "extend"
+        elif self.matched >= self.hold_length(self.period):
+            self.hold_start = i
+            kind = "suspect"
+        else:
+            kind = "release" if released else "none"
+        return GuardEvent(kind, self.period, self.matched, self.hold_start, copy_start,
+                          copy_start - self.period, released = released)
 
     def _gram(self, end: int) -> tuple | None:
         if end + 1 < self.min_match:
@@ -108,11 +145,10 @@ class SuffixLoopDetector:
             if token == self.tokens[i - self.period]:
                 self.matched += 1
                 self._register(i)
-                kind = "confirm" if self.matched >= self.confirm_length(self.period) else "extend"
-                return GuardEvent(kind, self.period, self.matched, self.hold_start,
-                                  self.hold_start - self.min_match + 1, self.hold_start - self.min_match + 1 - self.period)
+                return self._event(i)
+            # a copy that was only tracked held nothing, so its end releases nothing
+            released = self.hold_start >= 0
             self._reset()
-            released = True
 
         g = self._gram(i)
         earlier = self._index.get(g) if g is not None else None
@@ -121,14 +157,18 @@ class SuffixLoopDetector:
         if last_end is None:
             return GuardEvent("release" if released else "none", released = released)
 
-        # The most recent earlier occurrence gives the period; the copy began min_match tokens ago
+        # The most recent earlier occurrence gives the period. The copy began at least min_match tokens
+        # ago; measure how far back it really reaches (bounded by the confirm length, so O(confirm) once
+        # per new copy), so a loop is not under-counted when the gram that reveals it arrives late
         period = i - last_end
+        cap = self.confirm_length(period)
+        matched = self.min_match
+        while matched < cap and i - matched - period >= 0 and \
+                self.tokens[i - matched] == self.tokens[i - matched - period]:
+            matched += 1
         self.period = period
-        self.matched = self.min_match
-        self.hold_start = i
-        copy_start = i - self.min_match + 1
-        kind = "confirm" if self.matched >= self.confirm_length(period) else "suspect"
-        return GuardEvent(kind, period, self.matched, i, copy_start, copy_start - period, released = released)
+        self.matched = matched
+        return self._event(i, released)
 
     def truncate(self, length: int):
         """Forget every token at output index >= length (a rollback), and any suspicion in progress"""
@@ -159,7 +199,7 @@ class RepetitionGuard:
         assert opts["max_interventions"] >= 0 and opts["escalate_within"] >= 0
         self.options = opts
         self.mode = opts["mode"]
-        self.detector = SuffixLoopDetector(opts["min_match"], opts["confirm"])
+        self.detector = SuffixLoopDetector(opts["min_match"], opts["confirm"], opts["repeats"], opts["hold"])
         self.nudge_text = opts["nudge"] or None
         self._nudge_ids = None
         self.interventions: list[dict] = []

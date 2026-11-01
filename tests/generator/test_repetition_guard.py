@@ -20,8 +20,9 @@ pytestmark = pytest.mark.nogpu
 
 P = [10, 11, 12, 13, 14, 15, 16, 17]        # the phrase the model loops on
 NUDGE_IDS = [900, 901, 902]
-# Job tests: a copy of 6 tokens is a loop whatever its period, so short scripts confirm
-OPTS = dict(min_match = 4, confirm = 6, max_interventions = 2, escalate_within = 64)
+# Job tests exercise the tier mechanics, not the loop rule: repeats = 1 makes any 6-token copy a loop whatever its
+# period and hold = 2 starts the hold at the 4-token trigger, so short scripts confirm
+OPTS = dict(min_match = 4, confirm = 6, repeats = 1, hold = 2, max_interventions = 2, escalate_within = 64)
 
 
 # ---------------------------------------------------------------- detector and tiers
@@ -30,53 +31,58 @@ def kinds(det, tokens):
     return [det.feed(t).kind for t in tokens]
 
 
-def test_detector_suspects_holds_and_confirms_one_period():
-    d = SuffixLoopDetector(min_match = 4, confirm = 32)
-    k = kinds(d, P + P)
-    # the first copy: three tokens pass unnoticed, the fourth completes a 4-gram seen before (suspect), the copy
-    # extends, and one full period confirms
-    assert k[:8] == ["none"] * 8
-    assert k[8:] == ["none", "none", "none", "suspect", "extend", "extend", "extend", "confirm"]
+def test_loop_rule_needs_repeats_back_to_back_and_confirm_tokens():
+    d = SuffixLoopDetector(min_match = 4, confirm = 20, repeats = 4, hold = 5)
+    assert d.confirm_length(1) == 20 and d.confirm_length(8) == 24 and d.confirm_length(100) == 300
+    assert d.hold_length(8) == 19
+    k = kinds(d, P * 5)
+    # P occurs four times back to back at token 31 (24 copied tokens): tracked silently, held for the last 5
+    assert k[:26] == ["none"] * 26
+    assert k[26] == "suspect" and k[27:31] == ["extend"] * 4 and k[31] == "confirm"
     ev = d.feed(P[0])
-    assert ev.kind == "confirm" and ev.period == 8 and ev.hold_start == 11 and ev.copy_start == 8 and ev.source_start == 0
+    assert ev.kind == "confirm" and ev.period == 8 and ev.hold_start == 26 and ev.copy_start == 8 and ev.source_start == 0
 
 
-def test_detector_short_period_confirms_at_the_trigger():
-    d = SuffixLoopDetector(min_match = 4, confirm = 32)
-    assert kinds(d, [9, 7, 7, 7, 7, 7]) == ["none"] * 5 + ["confirm"]
-    assert d.confirm_length(1) == 4 and d.confirm_length(8) == 8 and d.confirm_length(100) == 32
+def test_one_time_copy_never_confirms():
+    # a draft from the thinking written out again in the answer: a copy shorter than its period never overlaps
+    # its source, so it can not reach (repeats - 1) periods, however long the draft
+    draft = list(range(100, 700))
+    d = SuffixLoopDetector(min_match = 8, confirm = 64, repeats = 4, hold = 32)
+    k = kinds(d, draft + [1, 2, 3] + draft + [4, 5])
+    assert "confirm" not in k and "suspect" not in k
+    assert set(k) == {"none"}, "output is never held for a plain copy"
 
 
-def test_detector_long_period_is_capped_by_confirm():
-    d = SuffixLoopDetector(min_match = 8, confirm = 32)
-    k = kinds(d, list(range(100, 140)) * 2)
-    assert k.index("suspect") == 47                    # 8th token of the copy
-    assert k.index("confirm") == 71                    # 32 matched tokens, not the 40-token period
-    assert all(x == "extend" for x in k[48:71])
+def test_short_period_repetition_breaks_before_confirm():
+    # healthy markup: a short repeating run (closing tags, indentation, zeros) that the next differing token
+    # breaks well before `confirm` tokens is never a loop, and is not held either
+    d = SuffixLoopDetector(min_match = 8, confirm = 64, repeats = 4, hold = 8)
+    # 40 tokens of period 2, then a break; rows differ by their number, as real rows do
+    k = kinds(d, sum(([7, 8] * 20 + [9, 100 + r, 30, 31, 32] for r in range(6)), []))
+    assert "confirm" not in k and "suspect" not in k
+    # the same run kept going is a loop, confirmed at `confirm` copied tokens with only `hold` of them held
+    d = SuffixLoopDetector(min_match = 8, confirm = 64, repeats = 4, hold = 8)
+    k = kinds(d, [7, 8] * 60)
+    assert k.index("suspect") == 2 + 56 - 1 and k.index("confirm") == 2 + 64 - 1
 
 
 def test_detector_releases_on_a_break_and_truncates_cleanly():
-    d = SuffixLoopDetector(min_match = 4, confirm = 32)
-    assert kinds(d, P + P[:6] + [99]) == ["none"] * 11 + ["suspect", "extend", "extend", "release"]
+    d = SuffixLoopDetector(min_match = 4, confirm = 6, repeats = 1, hold = 2)
+    assert kinds(d, P + P[:6] + [99]) == ["none"] * 11 + ["suspect", "extend", "confirm", "release"]
     assert not d.suspecting
-    # a break that is itself the start of another copy: one event, flagged released, so the old hold is let go
-    d1 = SuffixLoopDetector(min_match = 3, confirm = 32)
-    kinds(d1, [1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5])
-    ev = d1.feed(1)                                     # breaks the copy of 1..5 and starts copying 5,1,2? no: 4,5,1 is new
-    assert ev.kind == "release" and ev.released
-    d2 = SuffixLoopDetector(min_match = 3, confirm = 32)
-    k = kinds(d2, [1, 2, 3, 4, 5, 1, 2, 3, 9, 7, 1, 2, 3])
-    assert k[-1] == "suspect"                           # copying "1 2 3 9" (the most recent earlier "1 2 3")
-    ev = d2.feed(4)                                     # that copy breaks, and "2 3 4" was seen at the start
-    assert ev.kind == "suspect" and ev.released and ev.period == 10
-    d2 = SuffixLoopDetector(min_match = 4, confirm = 32)
+    d = SuffixLoopDetector(min_match = 4, confirm = 8, repeats = 1, hold = 4)
+    assert kinds(d, P + P[:5] + [99]) == ["none"] * 11 + ["suspect", "extend", "release"]
+    # a tracked copy that breaks before any hold releases nothing
+    d = SuffixLoopDetector(min_match = 4, confirm = 32, repeats = 4, hold = 4)
+    assert kinds(d, P + P[:6] + [99]) == ["none"] * 15
+    d2 = SuffixLoopDetector(min_match = 4, confirm = 8, repeats = 1, hold = 4)
     kinds(d2, P + P[:5])
     assert d2.suspecting
     d2.truncate(11)                                     # a rollback to the first held token
     assert len(d2) == 11 and not d2.suspecting
     assert kinds(d2, [50, 51, 52, 53]) == ["none"] * 4
     # the forgotten grams are gone from the index: re-feeding the copy re-suspects at the same place
-    d3 = SuffixLoopDetector(min_match = 4, confirm = 32)
+    d3 = SuffixLoopDetector(min_match = 4, confirm = 8, repeats = 1, hold = 4)
     kinds(d3, P + P[:5]); d3.truncate(8)
     assert kinds(d3, P[:4]) == ["none", "none", "none", "suspect"]
 
@@ -88,7 +94,7 @@ def test_detector_ignores_copies_of_what_it_never_saw():
 
 def test_guard_tiers_budget_and_escalation():
     g = RepetitionGuard(dict(OPTS, confirm = 32))
-    ev = SuffixLoopDetector(4, 32).feed(0)              # any event will do for record()
+    ev = SuffixLoopDetector(4, 32, 1, 0).feed(0)              # any event will do for record()
     for _ in range(10): g.feed(1)                       # position 10
     assert g.plan(allow_nudge = True) == 1
     g.record(1, ev)
