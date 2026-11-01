@@ -1,0 +1,4 @@
+Native chat template: copied unchanged from Mia-AiLab/Ornith-1.5-122B-EXL3-EAQv1-4-bpw, revision 9c5c913b3de1eef901520d6fedaf450044ea0423. The model card declares MIT licensing. Source: https://huggingface.co/Mia-AiLab/Ornith-1.5-122B-EXL3-EAQv1-4-bpw
+Template SHA256: 9dd2fbd270feaa1fbef2d4f634d7887c9c506e3bde140f8e7351c8944e8fd235
+The tokenizer_config fixture contains only the native template token metadata.
+The two HTML files are generated-output regression fixtures from the reported failures.

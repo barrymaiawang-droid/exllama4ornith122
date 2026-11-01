@@ -1,0 +1,88 @@
+Ornith-1.5-122B / llmfleet item 22, Node B, review 2026-11-02
+
+The v5 adapter preserves the OpenAI tool envelopes accepted by the pack's native
+chat template. On the captured DeepSeek Harness request this changes the initial
+reply from an irrelevant response about a previous assistant turn to a plan for
+the requested pelican webpage. This was reproduced with ordinary decoding, using
+the same checkpoint and request in both arms.
+
+String tool arguments now preserve indentation, padding, trailing newlines,
+quoted literals and literal protocol-looking text. Only the one native XML
+framing newline on either side is removed. Both the streaming and non-streaming
+paths round-trip both supplied HTML fixtures exactly. Invalid histories return a
+clear error instead of silently dropping the tools and history.
+
+Reasoning that exhausts its output budget stays in reasoning_content rather than
+being copied into the answer. Both response modes preserve the full reasoning
+tail, and implicit thinking-to-tool transitions keep the preceding thought separate.
+
+The adapter reads temperature 0.6, top_k 20 and top_p 0.95 from the bundled model
+config. Explicit temperature 0 remains greedy. top_k, min_p, supported penalties
+and seed are honored. REASONING and RBUDGET control startup defaults; per-request
+values override them. The fleet boot action is one restart command so PROFILE,
+CTX, REASONING and RBUDGET reach startup. The configured request ceiling remains
+131072 tokens, with the context-room check applied before streaming headers.
+
+AR is the selected quality default, matching the ordinary-decoder reference.
+The speculative controls changed token choices in the numerical comparison, so
+the faster MTP2 profile remains explicit (PROFILE=MTP2 / SPEC=mtp2). Sampled
+2k/256-token FP32-state code probes measured medians of 23.06 tok/s for AR,
+31.17 for MTP2 and 32.96 for DFlash2 with NDT=2 (two repeats per mode).
+DFlash2 remains opt-in with its original depth 15. NDT=2 now actually caps its
+verification window, via EXL3_DRAFT_TOKENS, and /props reports the effective depth.
+Matched greedy 2k/192-token probes measured 24.0 tok/s at depth 15 and 30.6 at
+2. This is an optional speed setting, not a claim of exact AR equivalence.
+
+The launcher uses the full-precision router projection in every mode on this
+single-GPU server (EXL3_ROUTER_DET=0), matching the reference/tuning configuration.
+It stores GDN recurrent state in FP32, retaining precision between passes; the
+former FP16 state remains available with RECURRENT_STATE_DTYPE=fp16. This does
+not eliminate all speculative differences. It defaults to one CPU math thread
+and one active model-cache slot.
+The server already serializes generation. Prefill chunks remain 2048. A 4096
+chunk measured faster but changed token preferences in the long-context control,
+so it is only an explicit PREFILL_CHUNK option. No weight or native-kernel
+precision reduction, power-profile change, or node-A change was made.
+
+Validation: all 28 model files matched the pinned Hub metadata, 99 targeted
+kernel tests passed, 15 repetition-guard tests passed, 15 adapter tests passed,
+and 3000 randomized streaming cases passed. Live checks covered tools, history,
+seeds, defaults, prompt caching, a 29338-token retrieval case, cancellation and
+the captured DeepSeek request. The 8k cache probe was 16.1 seconds cold and
+0.9 seconds warm; a request after an abandoned long prefill returned in 7.9
+seconds. A complete 5738-token direct-answer HTML tool write finished with valid
+JavaScript syntax. A separate thinking-enabled probe hit its 12288-token cap
+without emitting a file; this is not counted as a completed project.
+
+A reasoning-enabled AR/FP16 file write completed with 6509 tokens but declared
+a JavaScript variable twice and failed syntax checking. This is recorded as a
+model-output failure, not a passed project check.
+
+These checks establish adapter correctness and sampled runtime behavior, not
+acceptable visual design on every prompt or BF16 equivalence. Speculative paths
+show floating-point differences from AR. The adapter is text-only and rejects
+image parts explicitly. The native XML format reserves its closing delimiters.
+The full 262144-token limit and an independent BF16 model were not re-evaluated.
+
+Runtime: /home/hycris/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1/serving-quality-v5
+Rollback snapshot: /home/hycris/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1/rollbacks/20261102-serving-v5
+The former v4 bundle and the compiled repguard-build1 artifact remain available.
+Restore launcher-before.sh, restore ~/.ornith122-spec from spec-before.txt,
+and restore only the ornith122df entry from
+fleet-entry-before.json to roll back the serving selection without overwriting
+other fleet entries. Stop the managed server before restoring the launcher.
+
+Final FP32 integration: AR passed the captured-request boundary checks in both
+response modes; MTP2 and DFlash2/NDT=2 passed real startup, generation, tool output
+and Python syntax checks. The first DFlash smoke exceeded its 60-second wait;
+a retry after closing the browser loaded in about 33 seconds and passed.
+
+The reasoning-enabled FP32 page write completed with 7697 tokens and valid JS
+syntax, but the browser found an invalid third argument to renderer.render.
+The model repaired that line through native tool history; the repaired scratch
+page rendered without console errors. Camera framing still clips the subject.
+This validates feedback/repair and the adapter, not acceptable one-shot design.
+The originals were not edited. FP32 prefix cache: 15.47 seconds cold, 0.84 warm
+(7936 cached tokens). After cancelled prefill, next request: 7.56 seconds.
+
+The managed model service and test servers are stopped at completion.
