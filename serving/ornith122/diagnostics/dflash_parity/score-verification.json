@@ -1,0 +1,87 @@
+{
+  "scores": [
+    {
+      "file": "ar-final_write-repeat128-scores.pt",
+      "positions": 128,
+      "nan_count": 0,
+      "positive_inf_count": 0,
+      "negative_inf_count": 31104,
+      "argmax_matches_emitted_ids": true
+    },
+    {
+      "file": "ar-first_write-repeat128-scores.pt",
+      "positions": 128,
+      "nan_count": 0,
+      "positive_inf_count": 0,
+      "negative_inf_count": 31104,
+      "argmax_matches_emitted_ids": true
+    },
+    {
+      "file": "df15-final_write-forced_ar128-scores.pt",
+      "positions": 128,
+      "nan_count": 0,
+      "positive_inf_count": 0,
+      "negative_inf_count": 0,
+      "argmax_matches_emitted_ids": true
+    },
+    {
+      "file": "df15-final_write-repeat128-scores.pt",
+      "positions": 128,
+      "nan_count": 0,
+      "positive_inf_count": 0,
+      "negative_inf_count": 31104,
+      "argmax_matches_emitted_ids": true
+    },
+    {
+      "file": "df15-first_write-forced_ar128-scores.pt",
+      "positions": 128,
+      "nan_count": 0,
+      "positive_inf_count": 0,
+      "negative_inf_count": 0,
+      "argmax_matches_emitted_ids": false
+    },
+    {
+      "file": "df15-first_write-repeat128-scores.pt",
+      "positions": 128,
+      "nan_count": 0,
+      "positive_inf_count": 0,
+      "negative_inf_count": 31104,
+      "argmax_matches_emitted_ids": true
+    }
+  ],
+  "comparisons": [
+    {
+      "case": "first_write",
+      "mismatch_positions": [
+        17,
+        32,
+        67
+      ],
+      "native_report_verified": true,
+      "common_allowed_vocab_counts": [
+        248077
+      ],
+      "common_vocab_mean_kl": 0.003794834716245532,
+      "common_vocab_max_kl": 0.03699149936437607,
+      "unforced_first_divergence": {
+        "position": 17,
+        "ar_id": 8042,
+        "df_id": 5604,
+        "ar_gap": 0.1171875,
+        "df_gap": 0.0546875,
+        "same_prior_tokens": true
+      }
+    },
+    {
+      "case": "final_write",
+      "mismatch_positions": [],
+      "native_report_verified": true,
+      "common_allowed_vocab_counts": [
+        248077
+      ],
+      "common_vocab_mean_kl": 0.0005280420300550759,
+      "common_vocab_max_kl": 0.015544509515166283,
+      "unforced_first_divergence": null
+    }
+  ]
+}

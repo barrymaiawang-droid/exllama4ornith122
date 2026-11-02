@@ -1,0 +1,610 @@
+{
+  "timestamp": "2026-11-02T12:50:13.473650+11:00",
+  "node": "B",
+  "target_model": "Ornith-1.5-122B-EXL3-EAQv1-4-bpw",
+  "draft_model_loaded": false,
+  "prompt_tokens": 22366,
+  "output_tokens": 32,
+  "temperature": 0,
+  "seed": 123,
+  "recurrent_state_dtype": "float32",
+  "router_det": 0,
+  "prefill_chunk": 2048,
+  "ordinary_decode_repeat_scores_bitwise_equal": true,
+  "comparisons": [
+    {
+      "name": "oracle_block16",
+      "mismatch_positions": [
+        17
+      ],
+      "first_block_mismatches": [],
+      "max_logit_abs_delta": 5.5625,
+      "mean_logit_abs_delta": 0.3427415192127228,
+      "position_17": {
+        "ar_id": 8042,
+        "candidate_id": 5604,
+        "ar_gap_refer_over_reference": 0.1171875,
+        "candidate_gap_refer_over_reference": -0.046875
+      },
+      "mean_kl": 0.0018969960510730743,
+      "max_kl": 0.036991022527217865
+    },
+    {
+      "name": "oracle_block2",
+      "mismatch_positions": [],
+      "first_block_mismatches": [],
+      "max_logit_abs_delta": 0.0625,
+      "mean_logit_abs_delta": 0.00032665568869560957,
+      "position_17": {
+        "ar_id": 8042,
+        "candidate_id": 8042,
+        "ar_gap_refer_over_reference": 0.1171875,
+        "candidate_gap_refer_over_reference": 0.1171875
+      },
+      "mean_kl": 1.5663773922369728e-07,
+      "max_kl": 4.647416062653065e-06
+    },
+    {
+      "name": "ar32_repeat",
+      "mismatch_positions": [],
+      "first_block_mismatches": [],
+      "max_logit_abs_delta": 0.0,
+      "mean_logit_abs_delta": 0.0,
+      "position_17": {
+        "ar_id": 8042,
+        "candidate_id": 8042,
+        "ar_gap_refer_over_reference": 0.1171875,
+        "candidate_gap_refer_over_reference": 0.1171875
+      },
+      "mean_kl": 0.0,
+      "max_kl": 0.0
+    }
+  ],
+  "runs": [
+    {
+      "name": "ar32",
+      "seconds": 36.41595142699953,
+      "same_saved_ar_ids": true,
+      "calls": [
+        {
+          "before": 0,
+          "after": 1,
+          "draft_width": null
+        },
+        {
+          "before": 1,
+          "after": 2,
+          "draft_width": null
+        },
+        {
+          "before": 2,
+          "after": 3,
+          "draft_width": null
+        },
+        {
+          "before": 3,
+          "after": 4,
+          "draft_width": null
+        },
+        {
+          "before": 4,
+          "after": 5,
+          "draft_width": null
+        },
+        {
+          "before": 5,
+          "after": 6,
+          "draft_width": null
+        },
+        {
+          "before": 6,
+          "after": 7,
+          "draft_width": null
+        },
+        {
+          "before": 7,
+          "after": 8,
+          "draft_width": null
+        },
+        {
+          "before": 8,
+          "after": 9,
+          "draft_width": null
+        },
+        {
+          "before": 9,
+          "after": 10,
+          "draft_width": null
+        },
+        {
+          "before": 10,
+          "after": 11,
+          "draft_width": null
+        },
+        {
+          "before": 11,
+          "after": 12,
+          "draft_width": null
+        },
+        {
+          "before": 12,
+          "after": 13,
+          "draft_width": null
+        },
+        {
+          "before": 13,
+          "after": 14,
+          "draft_width": null
+        },
+        {
+          "before": 14,
+          "after": 15,
+          "draft_width": null
+        },
+        {
+          "before": 15,
+          "after": 16,
+          "draft_width": null
+        },
+        {
+          "before": 16,
+          "after": 17,
+          "draft_width": null
+        },
+        {
+          "before": 17,
+          "after": 18,
+          "draft_width": null
+        },
+        {
+          "before": 18,
+          "after": 19,
+          "draft_width": null
+        },
+        {
+          "before": 19,
+          "after": 20,
+          "draft_width": null
+        },
+        {
+          "before": 20,
+          "after": 21,
+          "draft_width": null
+        },
+        {
+          "before": 21,
+          "after": 22,
+          "draft_width": null
+        },
+        {
+          "before": 22,
+          "after": 23,
+          "draft_width": null
+        },
+        {
+          "before": 23,
+          "after": 24,
+          "draft_width": null
+        },
+        {
+          "before": 24,
+          "after": 25,
+          "draft_width": null
+        },
+        {
+          "before": 25,
+          "after": 26,
+          "draft_width": null
+        },
+        {
+          "before": 26,
+          "after": 27,
+          "draft_width": null
+        },
+        {
+          "before": 27,
+          "after": 28,
+          "draft_width": null
+        },
+        {
+          "before": 28,
+          "after": 29,
+          "draft_width": null
+        },
+        {
+          "before": 29,
+          "after": 30,
+          "draft_width": null
+        },
+        {
+          "before": 30,
+          "after": 31,
+          "draft_width": null
+        },
+        {
+          "before": 31,
+          "after": 32,
+          "draft_width": null
+        }
+      ],
+      "rewinds": [],
+      "nan_count": 0,
+      "positive_inf_count": 0
+    },
+    {
+      "name": "oracle_block16",
+      "seconds": 37.69587533499998,
+      "same_saved_ar_ids": true,
+      "calls": [
+        {
+          "before": 0,
+          "after": 16,
+          "draft_width": 15
+        },
+        {
+          "before": 16,
+          "after": 32,
+          "draft_width": 15
+        }
+      ],
+      "rewinds": [
+        {
+          "rejected": 0,
+          "history": 15,
+          "position": 22381
+        },
+        {
+          "rejected": 0,
+          "history": 15,
+          "position": 22397
+        }
+      ],
+      "nan_count": 0,
+      "positive_inf_count": 0
+    },
+    {
+      "name": "oracle_block2",
+      "seconds": 36.43429532799928,
+      "same_saved_ar_ids": true,
+      "calls": [
+        {
+          "before": 0,
+          "after": 2,
+          "draft_width": 1
+        },
+        {
+          "before": 2,
+          "after": 4,
+          "draft_width": 1
+        },
+        {
+          "before": 4,
+          "after": 6,
+          "draft_width": 1
+        },
+        {
+          "before": 6,
+          "after": 8,
+          "draft_width": 1
+        },
+        {
+          "before": 8,
+          "after": 10,
+          "draft_width": 1
+        },
+        {
+          "before": 10,
+          "after": 12,
+          "draft_width": 1
+        },
+        {
+          "before": 12,
+          "after": 14,
+          "draft_width": 1
+        },
+        {
+          "before": 14,
+          "after": 16,
+          "draft_width": 1
+        },
+        {
+          "before": 16,
+          "after": 18,
+          "draft_width": 1
+        },
+        {
+          "before": 18,
+          "after": 20,
+          "draft_width": 1
+        },
+        {
+          "before": 20,
+          "after": 22,
+          "draft_width": 1
+        },
+        {
+          "before": 22,
+          "after": 24,
+          "draft_width": 1
+        },
+        {
+          "before": 24,
+          "after": 26,
+          "draft_width": 1
+        },
+        {
+          "before": 26,
+          "after": 28,
+          "draft_width": 1
+        },
+        {
+          "before": 28,
+          "after": 30,
+          "draft_width": 1
+        },
+        {
+          "before": 30,
+          "after": 32,
+          "draft_width": 1
+        }
+      ],
+      "rewinds": [
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22367
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22369
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22371
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22373
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22375
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22377
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22379
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22381
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22383
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22385
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22387
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22389
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22391
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22393
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22395
+        },
+        {
+          "rejected": 0,
+          "history": 1,
+          "position": 22397
+        }
+      ],
+      "nan_count": 0,
+      "positive_inf_count": 0
+    },
+    {
+      "name": "ar32_repeat",
+      "seconds": 38.204965922000156,
+      "same_saved_ar_ids": true,
+      "calls": [
+        {
+          "before": 0,
+          "after": 1,
+          "draft_width": null
+        },
+        {
+          "before": 1,
+          "after": 2,
+          "draft_width": null
+        },
+        {
+          "before": 2,
+          "after": 3,
+          "draft_width": null
+        },
+        {
+          "before": 3,
+          "after": 4,
+          "draft_width": null
+        },
+        {
+          "before": 4,
+          "after": 5,
+          "draft_width": null
+        },
+        {
+          "before": 5,
+          "after": 6,
+          "draft_width": null
+        },
+        {
+          "before": 6,
+          "after": 7,
+          "draft_width": null
+        },
+        {
+          "before": 7,
+          "after": 8,
+          "draft_width": null
+        },
+        {
+          "before": 8,
+          "after": 9,
+          "draft_width": null
+        },
+        {
+          "before": 9,
+          "after": 10,
+          "draft_width": null
+        },
+        {
+          "before": 10,
+          "after": 11,
+          "draft_width": null
+        },
+        {
+          "before": 11,
+          "after": 12,
+          "draft_width": null
+        },
+        {
+          "before": 12,
+          "after": 13,
+          "draft_width": null
+        },
+        {
+          "before": 13,
+          "after": 14,
+          "draft_width": null
+        },
+        {
+          "before": 14,
+          "after": 15,
+          "draft_width": null
+        },
+        {
+          "before": 15,
+          "after": 16,
+          "draft_width": null
+        },
+        {
+          "before": 16,
+          "after": 17,
+          "draft_width": null
+        },
+        {
+          "before": 17,
+          "after": 18,
+          "draft_width": null
+        },
+        {
+          "before": 18,
+          "after": 19,
+          "draft_width": null
+        },
+        {
+          "before": 19,
+          "after": 20,
+          "draft_width": null
+        },
+        {
+          "before": 20,
+          "after": 21,
+          "draft_width": null
+        },
+        {
+          "before": 21,
+          "after": 22,
+          "draft_width": null
+        },
+        {
+          "before": 22,
+          "after": 23,
+          "draft_width": null
+        },
+        {
+          "before": 23,
+          "after": 24,
+          "draft_width": null
+        },
+        {
+          "before": 24,
+          "after": 25,
+          "draft_width": null
+        },
+        {
+          "before": 25,
+          "after": 26,
+          "draft_width": null
+        },
+        {
+          "before": 26,
+          "after": 27,
+          "draft_width": null
+        },
+        {
+          "before": 27,
+          "after": 28,
+          "draft_width": null
+        },
+        {
+          "before": 28,
+          "after": 29,
+          "draft_width": null
+        },
+        {
+          "before": 29,
+          "after": 30,
+          "draft_width": null
+        },
+        {
+          "before": 30,
+          "after": 31,
+          "draft_width": null
+        },
+        {
+          "before": 31,
+          "after": 32,
+          "draft_width": null
+        }
+      ],
+      "rewinds": [],
+      "nan_count": 0,
+      "positive_inf_count": 0
+    }
+  ],
+  "method": "Known AR continuation supplied as draft tokens and forced output. Both oracle runs accepted every draft, with no rejection replay. Same target, prompt, cache capacity and prefill; cold cache mapping each run. Only target model was loaded.",
+  "conclusion": "Target block verification is sufficient to reproduce the position-17 argmax flip without a DFlash drafter or rejection rollback.",
+  "limits": "Specific operation not isolated. Block arithmetic and full-accept recurrent-state handling remain candidates. Does not prove which path is more faithful to an independent high-precision reference, establish average quality degradation, or clear all rollback cases. The two-token block matched only these 32 positions. No fix or production setting change was made."
+}

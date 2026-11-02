@@ -1,0 +1,605 @@
+{
+  "completed_at": "2026-11-02T11:48:57+11:00",
+  "experiment": {
+    "adapter_sha256": "805d1d38a9775605476c94f373b7aaeecb85bd523948bdd04d6aa1eaa6de2780",
+    "original_html_sha256": "2c3a1481bf383f663eef7e38b2876e39521ad9b2014b46c2aa2784a9f4b49c61",
+    "node": "B",
+    "model": "Ornith-1.5-122B-EXL3-EAQv1-4-bpw",
+    "draft": "Ornith-1.5-122B-DFlash2",
+    "modes": [
+      "AR",
+      "DFlash2 depth15"
+    ],
+    "context": 262144,
+    "prefill_chunk": 2048,
+    "router_det": 0,
+    "recurrent_state": "fp32",
+    "omp_threads": 1,
+    "mkl_threads": 1,
+    "seed": 123,
+    "temperature": 0,
+    "repetition_guard": true,
+    "max_new_tokens": 32768,
+    "input_reconstruction": "Recorded DSH surface including prune replacement, converted through installed DSH/pi-ai functions. strict:false reproduced; all three recorded token counts matched. Original HTTP payload was not separately captured.",
+    "controls": "Cold generator for each run, first 128 tokens repeated, DFlash logits compared while forced to the same AR prefix.",
+    "limits": "Greedy comparison differs from original sampling defaults. Native AR shares the same quantized checkpoint and backend; this is not independent BF16 equivalence. GPU contention makes timings unsuitable for speed claims."
+  },
+  "prompt_validation": [
+    {
+      "label": "initial",
+      "tokens": 21634,
+      "original_tokens": 21634,
+      "token_count_match": true,
+      "prompt_sha256": "5bbd643164194a1d609085a1af6ef4de5b54ce47b7ff0ec7879687a47d4d5bce",
+      "token_ids_sha256": "e1b30e15505c005e72d7606794983ab162f626c9e5b49ecd8a271916fc110586"
+    },
+    {
+      "label": "first_write",
+      "tokens": 22366,
+      "original_tokens": 22366,
+      "token_count_match": true,
+      "prompt_sha256": "812afcc0a55d037d1290f46888050ccf03f6672e27e4387c59b4f1f291f35327",
+      "token_ids_sha256": "86ecadde64006c1eda88c695aaea0762f596212224cb42e0a09d8c9584a818e3"
+    },
+    {
+      "label": "final_write",
+      "tokens": 30478,
+      "original_tokens": 30478,
+      "token_count_match": true,
+      "prompt_sha256": "63a947a3ecd0f9a1342f89288f8b74c28f6146e8a8a2e10573580fad31533ed3",
+      "token_ids_sha256": "7435d3be99b9d19cb315bed1f2d8e6c1d18095d42ace00df1f1aceb0baf92f16"
+    }
+  ],
+  "results": [
+    {
+      "mode": "ar",
+      "context": "first_write",
+      "completion_tokens": 8631,
+      "complete_html": true,
+      "javascript_syntax_pass": true,
+      "geometry": {
+        "file": "work/ornith-facing-review/ar-first_write-full-0.html",
+        "profile": "ar_first",
+        "bikeHeading": [
+          1,
+          0,
+          0
+        ],
+        "roadHeading": [
+          1,
+          0,
+          0
+        ],
+        "beakHeading": [
+          1,
+          0,
+          0
+        ],
+        "backgroundMotion": [
+          -1,
+          0,
+          0
+        ],
+        "vehicleRoadAlignment": 1,
+        "birdBikeAlignment": 1,
+        "vehicleTravelAlignment": 1,
+        "facingPass": true,
+        "wheelAxes": [
+          {
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "parallelToBike": 0,
+            "verticalComponent": 0
+          },
+          {
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "parallelToBike": 0,
+            "verticalComponent": 0
+          }
+        ],
+        "wheelPlanePass": true,
+        "allDirectionChecksPass": true
+      },
+      "repeat_control": {
+        "mode": "ar",
+        "case": "first_write",
+        "prefix_tokens": 128,
+        "cold_prefix_repeat_exact": true
+      },
+      "guard": {
+        "mode": "active",
+        "detections": 0,
+        "interventions": [],
+        "tier": 0,
+        "rollback_tokens": 0,
+        "injected_tokens": 0,
+        "visible_new_tokens": 8631
+      }
+    },
+    {
+      "mode": "ar",
+      "context": "final_write",
+      "completion_tokens": 7823,
+      "complete_html": true,
+      "javascript_syntax_pass": true,
+      "geometry": {
+        "file": "work/ornith-facing-review/ar-final_write-full-0.html",
+        "profile": "original",
+        "bikeHeading": [
+          1,
+          0,
+          0
+        ],
+        "roadHeading": [
+          0,
+          0,
+          -1
+        ],
+        "beakHeading": [
+          0.9999960801619718,
+          0,
+          -0.002799939408464699
+        ],
+        "backgroundMotion": [
+          0,
+          0,
+          1
+        ],
+        "vehicleRoadAlignment": 0,
+        "birdBikeAlignment": 0.9999960801619718,
+        "vehicleTravelAlignment": 0,
+        "facingPass": false,
+        "wheelAxes": [
+          {
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "parallelToBike": 0,
+            "verticalComponent": 0
+          },
+          {
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "parallelToBike": 0,
+            "verticalComponent": 0
+          }
+        ],
+        "wheelPlanePass": true,
+        "allDirectionChecksPass": false
+      },
+      "repeat_control": {
+        "mode": "ar",
+        "case": "final_write",
+        "prefix_tokens": 128,
+        "cold_prefix_repeat_exact": true
+      },
+      "guard": {
+        "mode": "active",
+        "detections": 0,
+        "interventions": [],
+        "tier": 0,
+        "rollback_tokens": 0,
+        "injected_tokens": 0,
+        "visible_new_tokens": 7823
+      }
+    },
+    {
+      "mode": "df15",
+      "context": "first_write",
+      "completion_tokens": 7876,
+      "complete_html": true,
+      "javascript_syntax_pass": true,
+      "geometry": {
+        "file": "work/ornith-facing-review/df15-first_write-full-0.html",
+        "profile": "df_first",
+        "bikeHeading": [
+          1,
+          0,
+          0
+        ],
+        "roadHeading": [
+          1,
+          0,
+          0
+        ],
+        "beakHeading": [
+          1,
+          0,
+          0
+        ],
+        "backgroundMotion": [
+          -1,
+          0,
+          0
+        ],
+        "vehicleRoadAlignment": 1,
+        "birdBikeAlignment": 1,
+        "vehicleTravelAlignment": 1,
+        "facingPass": true,
+        "wheelAxes": [
+          {
+            "axis": [
+              0.9944294994423173,
+              -0.10540384546544004,
+              2.220446049250313e-16
+            ],
+            "parallelToBike": 0.9944294994423173,
+            "verticalComponent": 0.10540384546544004
+          },
+          {
+            "axis": [
+              0.9944294994423173,
+              -0.10540384546544004,
+              2.220446049250313e-16
+            ],
+            "parallelToBike": 0.9944294994423173,
+            "verticalComponent": 0.10540384546544004
+          }
+        ],
+        "wheelPlanePass": false,
+        "allDirectionChecksPass": false
+      },
+      "repeat_control": {
+        "mode": "df15",
+        "case": "first_write",
+        "prefix_tokens": 128,
+        "cold_prefix_repeat_exact": true
+      },
+      "guard": {
+        "mode": "active",
+        "detections": 0,
+        "interventions": [],
+        "tier": 0,
+        "rollback_tokens": 0,
+        "injected_tokens": 0,
+        "visible_new_tokens": 7876
+      }
+    },
+    {
+      "mode": "df15",
+      "context": "final_write",
+      "completion_tokens": 7828,
+      "complete_html": true,
+      "javascript_syntax_pass": true,
+      "geometry": {
+        "file": "work/ornith-facing-review/df15-final_write-full-0.html",
+        "profile": "original",
+        "yawDegrees": 0,
+        "wheelControl": "none",
+        "bikeHeading": [
+          1,
+          0,
+          0
+        ],
+        "roadHeading": [
+          0,
+          0,
+          -1
+        ],
+        "beakHeading": [
+          0.9999960801619718,
+          0,
+          -0.002799939408464699
+        ],
+        "backgroundMotion": [
+          0,
+          0,
+          1
+        ],
+        "vehicleRoadAlignment": 0,
+        "birdBikeAlignment": 0.9999960801619718,
+        "vehicleTravelAlignment": 0,
+        "facingPass": false,
+        "wheelAxes": [
+          {
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "parallelToBike": 0,
+            "verticalComponent": 0
+          },
+          {
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "parallelToBike": 0,
+            "verticalComponent": 0
+          }
+        ],
+        "wheelPlanePass": true,
+        "allDirectionChecksPass": false
+      },
+      "repeat_control": {
+        "mode": "df15",
+        "case": "final_write",
+        "prefix_tokens": 128,
+        "cold_prefix_repeat_exact": true
+      },
+      "guard": {
+        "mode": "active",
+        "detections": 0,
+        "interventions": [],
+        "tier": 0,
+        "rollback_tokens": 0,
+        "injected_tokens": 0,
+        "visible_new_tokens": 7828
+      }
+    }
+  ],
+  "token_stream_comparisons": [
+    {
+      "case": "first_write",
+      "same_prompt_sha256": "812afcc0a55d037d1290f46888050ccf03f6672e27e4387c59b4f1f291f35327",
+      "ar_tokens": 8630,
+      "df_tokens": 7875,
+      "identical_token_stream": false,
+      "common_prefix_tokens": 17,
+      "ar_eos_reason": "stop_token",
+      "df_eos_reason": "stop_token",
+      "ar_completion_sha256": "1ad5c0b79ce3b966668950b3286f50e39b1e4a9015b4527441fb042a8545b870",
+      "df_completion_sha256": "a4a0b56273f1137c27a555ac2e783787673734afcd6b86f7bef8267ad7bb8bfe",
+      "ar_first_different_token": 8042,
+      "df_first_different_token": 5604
+    },
+    {
+      "case": "final_write",
+      "same_prompt_sha256": "63a947a3ecd0f9a1342f89288f8b74c28f6146e8a8a2e10573580fad31533ed3",
+      "ar_tokens": 7822,
+      "df_tokens": 7827,
+      "identical_token_stream": false,
+      "common_prefix_tokens": 4241,
+      "ar_eos_reason": "stop_token",
+      "df_eos_reason": "stop_token",
+      "ar_completion_sha256": "c43ceee9685f6bb6ea139f5a797256b0863e4e5381cdcf1597cdf55d5ed5610c",
+      "df_completion_sha256": "40da46d031282511bfad4684c42b5829cebb9e397a25edc6ee6b0a8635f32733",
+      "ar_first_different_token": 7368,
+      "df_first_different_token": 320
+    }
+  ],
+  "same_prefix_score_comparisons": [
+    {
+      "case": "first_write",
+      "compared_positions": 128,
+      "forced_ids_match": true,
+      "mismatches": [
+        {
+          "position": 17,
+          "ar_id": 8042,
+          "df_id": 5604,
+          "ar_reference_gap": 0.1171875,
+          "ar_token": [
+            " refer"
+          ],
+          "df_token": [
+            " reference"
+          ]
+        },
+        {
+          "position": 32,
+          "ar_id": 1,
+          "df_id": 1149,
+          "ar_reference_gap": 0.03125,
+          "ar_token": [
+            "\""
+          ],
+          "df_token": [
+            ".\""
+          ]
+        },
+        {
+          "position": 67,
+          "ar_id": 4434,
+          "df_id": 41928,
+          "ar_reference_gap": 0.03125,
+          "ar_token": [
+            " complete"
+          ],
+          "df_token": [
+            " polished"
+          ]
+        }
+      ],
+      "mean_kl": 0.0037948552053421736,
+      "max_kl": 0.03699149936437607
+    },
+    {
+      "case": "final_write",
+      "compared_positions": 128,
+      "forced_ids_match": true,
+      "mismatches": [],
+      "mean_kl": 0.0005281062331050634,
+      "max_kl": 0.015544509515166283
+    }
+  ],
+  "score_verification": {
+    "scores": [
+      {
+        "file": "ar-final_write-repeat128-scores.pt",
+        "positions": 128,
+        "nan_count": 0,
+        "positive_inf_count": 0,
+        "negative_inf_count": 31104,
+        "argmax_matches_emitted_ids": true
+      },
+      {
+        "file": "ar-first_write-repeat128-scores.pt",
+        "positions": 128,
+        "nan_count": 0,
+        "positive_inf_count": 0,
+        "negative_inf_count": 31104,
+        "argmax_matches_emitted_ids": true
+      },
+      {
+        "file": "df15-final_write-forced_ar128-scores.pt",
+        "positions": 128,
+        "nan_count": 0,
+        "positive_inf_count": 0,
+        "negative_inf_count": 0,
+        "argmax_matches_emitted_ids": true
+      },
+      {
+        "file": "df15-final_write-repeat128-scores.pt",
+        "positions": 128,
+        "nan_count": 0,
+        "positive_inf_count": 0,
+        "negative_inf_count": 31104,
+        "argmax_matches_emitted_ids": true
+      },
+      {
+        "file": "df15-first_write-forced_ar128-scores.pt",
+        "positions": 128,
+        "nan_count": 0,
+        "positive_inf_count": 0,
+        "negative_inf_count": 0,
+        "argmax_matches_emitted_ids": false
+      },
+      {
+        "file": "df15-first_write-repeat128-scores.pt",
+        "positions": 128,
+        "nan_count": 0,
+        "positive_inf_count": 0,
+        "negative_inf_count": 31104,
+        "argmax_matches_emitted_ids": true
+      }
+    ],
+    "comparisons": [
+      {
+        "case": "first_write",
+        "mismatch_positions": [
+          17,
+          32,
+          67
+        ],
+        "native_report_verified": true,
+        "common_allowed_vocab_counts": [
+          248077
+        ],
+        "common_vocab_mean_kl": 0.003794834716245532,
+        "common_vocab_max_kl": 0.03699149936437607,
+        "unforced_first_divergence": {
+          "position": 17,
+          "ar_id": 8042,
+          "df_id": 5604,
+          "ar_gap": 0.1171875,
+          "df_gap": 0.0546875,
+          "same_prior_tokens": true
+        }
+      },
+      {
+        "case": "final_write",
+        "mismatch_positions": [],
+        "native_report_verified": true,
+        "common_allowed_vocab_counts": [
+          248077
+        ],
+        "common_vocab_mean_kl": 0.0005280420300550759,
+        "common_vocab_max_kl": 0.015544509515166283,
+        "unforced_first_divergence": null
+      }
+    ]
+  },
+  "rotation_control": {
+    "file": "$HOME/dsh/dsh2/test3/pelican-bike-3d.html",
+    "profile": "original",
+    "bikeHeading": [
+      2.220446049250313e-16,
+      0,
+      -1
+    ],
+    "roadHeading": [
+      0,
+      0,
+      -1
+    ],
+    "beakHeading": [
+      -0.002799939408464477,
+      0,
+      -0.9999960801619718
+    ],
+    "backgroundMotion": [
+      0,
+      0,
+      1
+    ],
+    "vehicleRoadAlignment": 1,
+    "birdBikeAlignment": 0.9999960801619718,
+    "vehicleTravelAlignment": 1,
+    "facingPass": true
+  },
+  "tire_rotation_control": {
+    "file": "work/ornith-facing-review/df15-first_write-full-0.html",
+    "profile": "df_first",
+    "yawDegrees": 0,
+    "wheelControl": "straighten-tires",
+    "bikeHeading": [
+      1,
+      0,
+      0
+    ],
+    "roadHeading": [
+      1,
+      0,
+      0
+    ],
+    "beakHeading": [
+      1,
+      0,
+      0
+    ],
+    "backgroundMotion": [
+      -1,
+      0,
+      0
+    ],
+    "vehicleRoadAlignment": 1,
+    "birdBikeAlignment": 1,
+    "vehicleTravelAlignment": 1,
+    "facingPass": true,
+    "wheelAxes": [
+      {
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "parallelToBike": 0,
+        "verticalComponent": 0
+      },
+      {
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "parallelToBike": 0,
+        "verticalComponent": 0
+      }
+    ],
+    "wheelPlanePass": true,
+    "allDirectionChecksPass": true
+  },
+  "service_state": {
+    "running": false,
+    "state_at_test_start": "stopped after Node B restart",
+    "engine_files_changed": false,
+    "original_html_changed": false,
+    "node_a_used": false
+  },
+  "interpretation": "The original road-facing error recurs in both modes when faulty prior code is present. Both fresh replays align the bike with the road. DFlash also introduces a separate tire-orientation error and is not numerically equivalent to AR in this test. An independent backend comparison would be needed to clear shared engine or quantization effects."
+}

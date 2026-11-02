@@ -1,5 +1,10 @@
 # Ornith DFlash2: remaining numerical failure and current diagnostic handoff
 
+> Historical investigation. For the 2 November 2026 deployment, current evidence,
+> reproduction and machine restrictions, read the
+> [new DFlash parity handoff](ornith122-dflash-parity-handoff-20261102.md).
+> The old defaults and tolerance gate below are not current acceptance evidence.
+
 ## Status and requested work
 
 The original AR/native-MTP2 project has independently accepted numerical,

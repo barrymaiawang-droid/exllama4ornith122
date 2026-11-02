@@ -10,6 +10,11 @@ one CPU math thread and 2048-token prefill chunks. Native engine baseline:
 `67681612de24c8772319144b0dd9b7a41177fb22`; the native extension was not rebuilt.
 The adapter is byte-identical to the reviewed v5 deployment.
 
+The [2 November DFlash parity handoff](../../docs/ornith122-dflash-parity-handoff-20261102.md)
+records the unresolved native token divergence, a target-only reproduction without
+rejected drafts, measured results and the next diagnostic steps. AR remains the
+deployed default; no numerical fix is claimed by that handoff.
+
 ## CPU regression checks
 
 Install Jinja2 (see `requirements.txt`), then run from the repository root:
