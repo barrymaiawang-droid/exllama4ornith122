@@ -5,22 +5,23 @@ native tool envelopes and exact string payloads, validates native prompt history
 honors model sampling defaults and fleet controls, separates reasoning from answers,
 and cancels abandoned SSE requests during prefill.
 
-The tested Node B candidate uses DFlash2 with an eight-row cap, FP32 recurrent state,
-FP16 router projections, one CPU math thread and 2048-token prefill chunks. It uses source revision `806a103c2d4cd1d5935c192208b4031ff67faac5` plus the
-patches described below. Its release extension has SHA-256
+The Node B release uses DFlash2 with an eight-row cap, FP32 recurrent state,
+FP16 router projections, one CPU math thread and 2048-token prefill chunks. Its
+installed engine source is commit `32bad02af5c9f7fdf32555efa40564247ed555a8`. Its release extension has SHA-256
 `dd490fab5b42448aafc6b2d4390b7c45d921f034c1d4f2a2e2153e3f6a460bf7`; it was built
 incrementally from the isolated head experiment and GPU validated. Two full DFlash
 outputs matched their saved AR references at matched context and output reservations.
-Its live candidate smoke passed; the durable source installation remains pending. The
-adapter is byte-identical to the reviewed v5 deployment.
+The installed source and pinned extension passed the normal-launch service smoke; the
+managed service was then stopped to restore its initial state. The adapter is
+byte-identical to the reviewed v5 deployment.
 
 The [native parity report](../../docs/ornith122-native-parity-fix-20261102.md) describes
 candidate fixes for MoE scratch sizing, ROCm group-16 attention and the wide head, with
-their measured scope, bounded sampling check and candidate serving smoke. The earlier hypothesis that a cap of eight
+their measured scope, bounded sampling check and serving smoke. The earlier hypothesis that a cap of eight
 verification rows alone ensures parity was falsified. `VERIFY_ROWS` remains a scheduling
 control. The repository template prepares DFlash2 as the default with AR available as a
-fallback. The tested live candidate uses DFlash2; the durable installation has not yet
-been validated.
+fallback. Fleet item 22 starts the DFlash2 profile; select AR when needed. For rollback,
+use the `20261102-native-parity` snapshot and stopped-state plan in the parity report.
 
 ## CPU regression checks
 

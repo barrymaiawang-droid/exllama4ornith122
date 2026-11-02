@@ -3,16 +3,18 @@
 The release candidate matched all 16,452 visible tokens across two full eight-row
 DFlash runs against their saved AR references. Both comparisons used context capacity
 262,144, a 32,768-token output reservation and 2,048-token prefill chunks. A bounded
-sampling check also passed. A live Node B candidate serving smoke passed; durable
-installation remains pending. The 262,144-token cache was allocated,
+sampling check and live Node B serving checks also passed. The committed source and
+pinned extension were installed and passed the normal-launch smoke; the managed service
+was stopped afterward to restore its initial state. The 262,144-token cache was allocated,
 but the longest tested prompt was 30,478 tokens and the longest complete sequence about
 38,300 tokens; this is not a full-context quality test. These two fixtures do not establish
 model-wide bitwise or stochastic-distribution equivalence.
 
 ## Release evidence
 
-The candidate uses source base `806a103c2d4cd1d5935c192208b4031ff67faac5` plus the
-changes below. Its release native extension SHA-256 is
+The deployed engine source is commit `32bad02af5c9f7fdf32555efa40564247ed555a8`,
+based on `806a103c2d4cd1d5935c192208b4031ff67faac5` with the changes below. Its
+release native extension SHA-256 is
 `dd490fab5b42448aafc6b2d4390b7c45d921f034c1d4f2a2e2153e3f6a460bf7`.
 
 | Context | Visible tokens matched | Prefill seconds (tokens/s) | Generated including EOS | Decode seconds (tokens/s) | Accepted drafts | Rejected drafts |
@@ -47,8 +49,14 @@ greedy and sampled check results without prompts or generated token IDs. A live 
 smoke on Node B port 18161 reported context 262144, DFlash2 depth 15, chunk 2048 and FP32
 state; the process exposed the eight-row cap, FP16 router setting and head-parity flag,
 and its mapped extension matched the release hash. Both non-streaming and SSE arithmetic
-requests returned 703 and completed normally. This smoke used the candidate runtime;
-it does not establish that the planned durable installation has been tested.
+requests returned 703 and completed normally. A second smoke using the installed source,
+launcher and pinned extension passed the same non-streaming and SSE checks. After
+validation the managed service was stopped to restore its initial state.
+
+Use fleet item 22 to start DFlash2; select AR as the fallback when needed. The rollback
+snapshot is `$ROOT/rollbacks/20261102-native-parity`: stop the managed service, verify
+the snapshot manifest, restore the saved launcher, spec, fleet entry and note, and leave
+the service stopped unless a restart is requested. Preserve unrelated fleet changes.
 
 ## Changes and limits
 
