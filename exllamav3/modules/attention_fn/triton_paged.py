@@ -921,10 +921,11 @@ def _paged_attn_decode_split_kernel(
     HAS_SINKS: tl.constexpr,
     BLOCK_ROWS: tl.constexpr,
     BLOCK_N: tl.constexpr,
+    PAGE_BUCKET: tl.constexpr = 0,
 ):
     """Flash-decoding phase 1: one program per (batch, kv_head, row block, kv split). The rows of a
-    kv head are its (query position, sibling q head) pairs packed densely (decode_row_layout), so a
-    program reads and dequantizes each K/V tile once for up to BLOCK_ROWS of them."""
+    kv head are its (query position, sibling q head) pairs (decode_row_layout), so a program reads
+    and dequantizes each K/V tile once for up to BLOCK_ROWS of them."""
     pid = tl.program_id(0)
     split = tl.program_id(1)
 
@@ -937,8 +938,12 @@ def _paged_attn_decode_split_kernel(
 
     rows = tl.arange(0, BLOCK_ROWS)
     row_idx = h_block * BLOCK_ROWS + rows
-    row_q = row_idx % q_len
-    row_h_local = row_idx // q_len
+    if group_size == 16 and BLOCK_ROWS == 16:
+        row_q = row_idx // group_size
+        row_h_local = row_idx % group_size
+    else:
+        row_q = row_idx % q_len
+        row_h_local = row_idx // q_len
     q_head = kv_head * group_size + row_h_local
     valid_row = row_idx < q_len * group_size
 
@@ -951,6 +956,15 @@ def _paged_attn_decode_split_kernel(
 
     total_k_len = tl.load(cache_seqlens + batch) + kv_append_len
     q_abs = total_k_len - q_len + row_q
+    if CAUSAL and group_size == 16 and BLOCK_ROWS == 16 and WINDOW_LEFT < 0:
+        # Every block covers one query; stop at its own causal end, matching
+        # the iterations of its single-token decode call.
+        total_k_len = total_k_len - q_len + h_block + 1
+        if PAGE_BUCKET > 0:
+            # Generator-only contract: match the padded table bound its
+            # single-token call would have had at this query position.
+            ar_bound = tl.cdiv(total_k_len, page_size * PAGE_BUCKET) * page_size * PAGE_BUCKET + 1
+            split_len = tl.cdiv(tl.cdiv(ar_bound, num_splits), BLOCK_N) * BLOCK_N
 
     if WINDOW_LEFT >= 0:
         # Sliding-window layers only need keys >= (first query position - window): split that range, not the whole
@@ -1082,11 +1096,15 @@ def _paged_attn_decode_combine_kernel(
     batch = bh // n_kv_heads
     kv_head = bh - batch * n_kv_heads
 
-    # Same dense (query, head) rows as the split kernel
+    # Same (query, head) rows as the split kernel
     rows = r_c * ROWS_SUB + tl.arange(0, ROWS_SUB)
     row_idx = h_block * BLOCK_ROWS + rows
-    row_q = row_idx % q_len
-    row_h_local = row_idx // q_len
+    if group_size == 16 and BLOCK_ROWS == 16:
+        row_q = row_idx // group_size
+        row_h_local = row_idx % group_size
+    else:
+        row_q = row_idx % q_len
+        row_h_local = row_idx // q_len
     q_head = kv_head * group_size + row_h_local
     valid_row = row_idx < q_len * group_size
 
@@ -1136,17 +1154,16 @@ def _paged_attn_decode_combine_kernel(
     tl.store(out + out_base[:, None] + offs_d[None, :], out_tile, mask=valid_row[:, None] & (offs_d < V_DIM)[None, :])
 
 
-def decode_row_layout(q_len: int, group_size: int, hd_pad: int) -> tuple[int, int]:
+def decode_row_layout(q_len: int, group_size: int, hd_pad: int, row_parity: bool = False) -> tuple[int, int]:
     """(BLOCK_ROWS, row blocks per kv head) for the decode split / combine kernels.
 
-    A kv head's rows are its q_len * group_size (query position, sibling q head) pairs, packed densely
-    and cut into programs of up to 32 rows, each of which reads and dequantizes the head's K/V tiles
-    once. (Padding query positions up to a power of two and giving a program 16 / that many heads used
-    to split a 6-head group across three programs for a 5-token verify step, tripling the tile work.)
-    32 rows pays off at every head_dim up to 256 on Ampere, Blackwell and RDNA3 alike, the fp32
-    accumulator notwithstanding, since the tile loads dominate; at least 16 rows, the dots' minimum."""
+    Normally each program packs up to 32 (query position, sibling q head) pairs and shares K/V loads.
+    ROCm's 16-head GQA geometry uses one 16-row program per query so each causal query can stop
+    its KV loop at the same point as single-token decode. The dot kernels need at least 16 rows."""
     rows = q_len * group_size
-    block_rows = max(16, min(32, triton.next_power_of_2(rows)))
+    # For this ROCm GQA geometry, one token per block preserves single-token
+    # decode's row layout and lets the causal loop stop at that token's end.
+    block_rows = 16 if row_parity and torch.version.hip is not None and group_size == 16 else max(16, min(32, triton.next_power_of_2(rows)))
     return block_rows, triton.cdiv(rows, block_rows)
 
 
@@ -1186,6 +1203,7 @@ def paged_attn_triton_decode(
     n_kv_heads_override: int | None = None,
     num_warps: int | None = None,
     num_stages: int | None = None,
+    _page_bucket: int = 0,
 ) -> torch.Tensor:
     """Flash-decoding paged attention for short queries: the kv sequence is split across
     programs (sized from the block table, so no host sync on cache_seqlens) and reduced in a
@@ -1255,28 +1273,34 @@ def paged_attn_triton_decode(
     candidates = halving_ladder(cfg_block_n) if block_n is None else [block_n]
 
     group_size = n_q_heads // n_kv_heads
-    block_rows, h_blocks = decode_row_layout(q_len, group_size, hd_pad)
     num_pages_per_seq = block_table.shape[1]
-
-    # Upper bound on kv length: caller-provided hint, else from the block table shape
-    # (cache_seqlens stays on the device; no sync). A loose bound wastes split parallelism when
-    # the table is allocated much larger than the live sequence
     max_k_len = num_pages_per_seq * page_size + kv_append_len
     if max_kv_len is not None:
         max_k_len = min(max_k_len, max_kv_len + kv_append_len)
-
-    programs = bsz * n_kv_heads * h_blocks
     dev = q.device.index
     if dev not in _decode_sm_count:
         _decode_sm_count[dev] = torch.cuda.get_device_properties(q.device).multi_processor_count
     from ...util.backend import ATTN_SPLIT_TARGET
     target = ATTN_SPLIT_TARGET * _decode_sm_count[dev]
+    ar_programs = bsz * n_kv_heads * decode_row_layout(1, group_size, hd_pad)[1]
+    ar_cap = max(1, min(target // ar_programs, 128))
+    # Candidate tiles only shrink, so cfg_block_n is the strictest saturation test.
+    row_parity = bool(
+        _page_bucket == 16 and torch.version.hip is not None and bsz == 1
+        and causal and window_left < 0 and window_right < 0 and group_size == 16
+        and max_kv_len is None and not has_sinks
+        and ar_cap <= (_page_bucket * page_size + cfg_block_n) // cfg_block_n
+        and (num_splits is None or num_splits == ar_cap)
+    )
+    block_rows, h_blocks = decode_row_layout(q_len, group_size, hd_pad, row_parity)
+    programs = bsz * n_kv_heads * h_blocks
+    split_programs = ar_programs if row_parity else programs
 
     def prepare(block_n):
         """Split count, partial buffers and the split kernel's argument list for one kv tile."""
         splits = num_splits
         if splits is None:
-            splits = max(1, min(target // programs, triton.cdiv(max_k_len, 1 * block_n), 128))
+            splits = max(1, min(target // split_programs, triton.cdiv(max_k_len, 1 * block_n), 128))
         split_len = triton.cdiv(triton.cdiv(max_k_len, splits), block_n) * block_n
         if splits > 1:
             partial_o = torch.empty(programs * splits * block_rows * hd_pad, dtype = torch.float32, device = q.device)
@@ -1291,7 +1315,7 @@ def paged_attn_triton_decode(
             qck, qcv, q_len, kv_append_len, n_q_heads, n_kv_heads,
             page_size, head_dim, hd_pad, float(softmax_scale),
             bool(causal), int(window_left), int(window_right), float(softcap or 0.0),
-            splits == 1, has_sinks, block_rows, block_n,
+            splits == 1, has_sinks, block_rows, block_n, _page_bucket if row_parity else 0,
         )
         return args, splits, partial_o, partial_ml
 
@@ -1351,6 +1375,7 @@ def fn_triton_paged_attn_decode(args: AttnArgs) -> torch.Tensor | None:
         window_size=args.get_window_size(),
         softcap=args.softcap,
         sinks=args.sinks,
+        _page_bucket=args.block_table_page_bucket,
     )
 
 
@@ -2422,6 +2447,7 @@ def fn_triton_paged_attn_decode_qc(args: AttnArgs) -> torch.Tensor | None:
         pre_appended_len=args.q_len,
         n_kv_heads_override=args.num_kv_heads,
         max_kv_len=args.max_kv_len,
+        _page_bucket=args.block_table_page_bucket,
     )
 
 

@@ -302,7 +302,7 @@ class BCAttn:
         caches = (self.cache_k, self.cache_v, self.k_scales, self.v_scales)
         return all(t.untyped_storage().nbytes() < 2 ** 31 for t in caches if isinstance(t, torch.Tensor))
 
-    def _configure(self, bsz: int, q_len: int, causal: bool, regime: int):
+    def _configure(self, bsz: int, q_len: int, causal: bool, regime: int, page_bucket: int = 0):
         import triton
         from .triton_paged import (
             combine_subtiles,
@@ -320,13 +320,16 @@ class BCAttn:
         group_size = qh // kvh
 
         block_n, split_warps, split_stages = attn_decode_config(dev, hd_pad)
-        block_rows, h_blocks = decode_row_layout(q_len, group_size, hd_pad)
-        programs = bsz * kvh * h_blocks
-
-        # The live split count and split length are runtime kernel arguments derived from the
-        # block-table bound per call (patched into the graph); the grid is sized to the cap
         target = ATTN_SPLIT_TARGET * _get_sm_count(dev)
-        splits_cap = max(1, min(target // programs, 128))
+        # Decide the bucket contract before selecting either layout or cap.
+        # Without saturation, fall back completely to the baseline policy.
+        ar_programs = bsz * kvh * decode_row_layout(1, group_size, hd_pad)[1]
+        ar_cap = max(1, min(target // ar_programs, 128))
+        if page_bucket and ar_cap > (page_bucket * PAGE_SIZE + block_n) // block_n:
+            page_bucket = 0
+        block_rows, h_blocks = decode_row_layout(q_len, group_size, hd_pad, bool(page_bucket))
+        programs = bsz * kvh * h_blocks
+        splits_cap = ar_cap if page_bucket else max(1, min(target // programs, 128))
         window_left, window_right = _normalize_window(self.window_size)
 
         cache_t = "*i32" if self.quant else "*fp16"
@@ -343,14 +346,14 @@ class BCAttn:
         } | {n: "constexpr" for n in (
             "QCK", "QCV", "q_len", "kv_append_len", "n_q_heads", "n_kv_heads",
             "page_size", "head_dim", "HD_PAD", "scale", "CAUSAL", "WINDOW_LEFT", "WINDOW_RIGHT",
-            "SOFTCAP", "FINAL", "HAS_SINKS", "BLOCK_ROWS", "BLOCK_N")}
+            "SOFTCAP", "FINAL", "HAS_SINKS", "BLOCK_ROWS", "BLOCK_N", "PAGE_BUCKET")}
         consts = dict(
             QCK = self.k_bits, QCV = self.v_bits,
             q_len = q_len, kv_append_len = q_len, n_q_heads = qh, n_kv_heads = kvh,
             page_size = PAGE_SIZE, head_dim = hd, HD_PAD = hd_pad, scale = float(self.sm_scale),
             CAUSAL = bool(causal), WINDOW_LEFT = window_left, WINDOW_RIGHT = window_right,
             SOFTCAP = float(self.softcap or 0.0), FINAL = False, HAS_SINKS = False,
-            BLOCK_ROWS = block_rows, BLOCK_N = block_n,
+            BLOCK_ROWS = block_rows, BLOCK_N = block_n, PAGE_BUCKET = page_bucket,
         )
         k_split = _compile_kernel(dev, _paged_attn_decode_split_kernel, sig, consts, split_warps, split_stages,
                                   pointer_range_32 = self._pointer_range_32())
@@ -604,6 +607,7 @@ class BCAttn:
         inv_freq: torch.Tensor | None,
         causal: bool = True,
         host_seqlens: torch.Tensor | None = None,
+        page_bucket: int = 0,
     ) -> torch.Tensor | None:
         bsz, q_len, _ = x.shape
 
@@ -629,10 +633,20 @@ class BCAttn:
         # reconfigure (in practice constant per model). Everything else that varies per call --
         # position source, block-table pointer/width, split configuration -- is a runtime
         # argument patched into the graph
-        skey = (tuple(inv_freq.shape) if inv_freq is not None else None, causal)
+        # Only the generator's explicitly marked table has this padding
+        # contract. Other callers retain the existing table-width partition.
+        from .triton_paged import _normalize_window
+        window_left, window_right = _normalize_window(self.window_size)
+        use_bucket = (
+            page_bucket == 16 and torch.version.hip is not None and bsz == 1 and q_len >= 1
+            and causal and regime == 0 and not self.qsa and window_left < 0 and window_right < 0
+            and self.num_q_heads == 16 * self.num_kv_heads
+        )
+        page_bucket = page_bucket if use_bucket else 0
+        skey = (tuple(inv_freq.shape) if inv_freq is not None else None, causal, page_bucket)
         if self.slot_widths.get((bsz, q_len, regime), ...) != skey:
             try:
-                self._configure(bsz, q_len, causal, regime)
+                self._configure(bsz, q_len, causal, regime, page_bucket)
             except BCKernelTooLarge:
                 return None   # eager path sizes its own tiles
             self.slot_widths[(bsz, q_len, regime)] = skey

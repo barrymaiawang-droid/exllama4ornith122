@@ -336,10 +336,19 @@ it are counted as dropped. Graph-captured calls are recorded once, at capture ti
 entry point pays one relaxed atomic load; on, host work per call. A diagnostic for attributing
 numerical differences to routes, never timing evidence.
 
+### `EXL3_HEAD_AR_PARITY` (ROCm; default: `0`)
+
+Set to `1` to use the single-row wide-head K reduction order for matching 2–8-row
+FP16 EXL3 head calls (3072 input, 248320 output, 6-bit mul1), when the tiles core
+is active and the call is not graph-captured. Other shapes and cores keep their
+normal dispatch. The library default is off; the Node B launcher template opts in.
+This option does not ensure model-wide output parity; see the
+[parity report](../docs/ornith122-native-parity-fix-20261102.md) for test scope.
+
 ### `EXL3_GEMV_MAX_M` (ROCm; default: `16`), `EXL3_MGEMV_MAX_M` (ROCm; default: `8`)
 
 Row limits of the RDNA multi-row GEMV (`rocm/quant/exl3_gemv_multirow_rdna.cu`), which runs
-m-row calls as groups of at most 8 rows whose rows keep the m = 1 GEMV arithmetic exactly, ahead
+m-row calls as groups of at most 8 rows, ahead
 of the cooperative WMMA GEMM. `EXL3_GEMV_MAX_M` bounds single-matrix calls (clamp 1..16; `1`
 switches the path off; above 8 each call runs as two row groups). `EXL3_MGEMV_MAX_M` bounds the
 multi-matrix form (gate/up and k/v pairs; clamp 1..16): the default 8 leaves every call at or
@@ -379,21 +388,18 @@ Read once when the `Generator` is constructed. Unset keeps the constructor argum
 Overrides `num_draft_tokens`, so a launcher that does not expose it can still choose the verify depth. With a
 DFlash drafter the drafter still runs its full diffusion block and only the verified window shrinks; the value is
 capped at the drafter's `default_draft_size` (`block_size - 1`). On a 256-expert top-8 MoE each extra verify row
-widens the set of distinct experts read, so shallow windows can be faster than the drafter's default. On ROCm,
-8 verify rows (`EXL3_DRAFT_TOKENS=7`) is the widest window that keeps the MoE (`MAX_BSZN`), the two-matrix GEMV
-(`EXL3_MGEMV_MAX_M`) and the router on their weight-once, AR-identical tiers.
+widens the set of distinct experts read, so shallow windows can be faster than the drafter's default. Seven
+draft tokens means up to eight verification rows for one stream. Row count can affect kernel selection and
+numerical results; it does not by itself guarantee agreement with single-token decoding.
 
 ### `EXL3_DRAFT_MAX_ROWS` (default: unset)
 
 Overrides `draft_max_rows`, the ceiling on verification rows per round (`bsz * (1 + draft tokens)`; `0`
 disables it). Unlike `EXL3_DRAFT_TOKENS` it is stated in rows, so it holds as the batch grows: with a
-ceiling of 8, one stream verifies 7 draft tokens, two streams 3, four streams 1. On ROCm, 8 is the parity
-ceiling: 1..8-row passes stay on the tiers whose per-row arithmetic is the single-row decode's (the multi-row
-GEMV, the fused MoE decode kernel at `MAX_BSZN`, the router GEMV), and 9..16-row passes leave them (the
-two-matrix projections fall to the cooperative WMMA mgemm unless `EXL3_MGEMV_MAX_M=16`, the MoE to the fused
-prefill tier with a separately projected shared expert). The Ornith-122B parity handoff
-(`docs/ornith122-dflash-parity-handoff-20261102.md`) records a 16-row verification pass flipping a greedy
-token that a 2-row pass and plain decoding both keep.
+ceiling of 8, one stream verifies 7 draft tokens, two streams 3, four streams 1. This is a scheduling
+limit, not a parity guarantee: the original Ornith ROCm build exhibited greedy-token flips even at 4 and 8
+rows. See the [Ornith native parity report](../docs/ornith122-native-parity-fix-20261102.md) for the candidate
+fixes, observed scope and remaining validation.
 
 ### `EXL3_DYNAMIC_DRAFT` (default: unset)
 

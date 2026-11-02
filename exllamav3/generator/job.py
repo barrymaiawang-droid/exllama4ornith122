@@ -1706,9 +1706,20 @@ class Job:
                         ids, self.embeddings, ids.shape[-1]
                     )
 
+                # DFlash reserves speculative lookahead beyond the response budget.
+                # Its target prefill must use the AR reservation for that same
+                # budget, since table width determines attention's KV splits.
+                target_block_table = seq.block_index_tensor
+                if self.generator.dflash_draft and self.orig_max_rq_tokens is None:
+                    ar_tokens = len(seq.sequence_ids) + self.max_new_tokens + 1
+                    ar_tokens += int(self.prefix_token is not None)
+                    ar_pages = (ar_tokens + PAGE_SIZE - 1) // PAGE_SIZE
+                    # Never remove a page touched by this prefill (e.g. rewind).
+                    used_pages = (prefill_start + prefill_ids.shape[-1] + PAGE_SIZE - 1) // PAGE_SIZE
+                    target_block_table = target_block_table[:, :max(ar_pages, used_pages)]
                 params = {
                     "attn_mode": "flash_attn",
-                    "block_table": seq.block_index_tensor,
+                    "block_table": target_block_table,
                     "cache": self.generator.cache,
                     "cache_seqlens": torch.tensor([prefill_start], dtype = torch.int32),
                     "recurrent_states": [self.recurrent_state.target] if self.recurrent_state is not None and

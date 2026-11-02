@@ -5,22 +5,22 @@ native tool envelopes and exact string payloads, validates native prompt history
 honors model sampling defaults and fleet controls, separates reasoning from answers,
 and cancels abandoned SSE requests during prefill.
 
-The Node B deployment uses AR decoding, FP32 recurrent state, FP16 router projections,
-one CPU math thread and 2048-token prefill chunks. Native engine baseline:
-`67681612de24c8772319144b0dd9b7a41177fb22`; the native extension was not rebuilt.
-The adapter is byte-identical to the reviewed v5 deployment.
+The tested Node B candidate uses DFlash2 with an eight-row cap, FP32 recurrent state,
+FP16 router projections, one CPU math thread and 2048-token prefill chunks. It uses source revision `806a103c2d4cd1d5935c192208b4031ff67faac5` plus the
+patches described below. Its release extension has SHA-256
+`dd490fab5b42448aafc6b2d4390b7c45d921f034c1d4f2a2e2153e3f6a460bf7`; it was built
+incrementally from the isolated head experiment and GPU validated. Two full DFlash
+outputs matched their saved AR references at matched context and output reservations.
+Its live candidate smoke passed; the durable source installation remains pending. The
+adapter is byte-identical to the reviewed v5 deployment.
 
-The [2 November DFlash parity handoff](../../docs/ornith122-dflash-parity-handoff-20261102.md)
-records the native token divergence, a target-only reproduction without rejected
-drafts, measured results and the next diagnostic steps. Its later section traces the
-divergence to a kernel-tier boundary: verification passes of up to 8 rows stay on the
-RDNA tiers whose per-row arithmetic is AR decoding's, while the deployed 16-row DFlash2
-passes (`NDT=15`) fall to the cooperative WMMA mgemm and the fused prefill MoE tier.
-The launcher's `VERIFY_ROWS` (default 8, `EXL3_DRAFT_MAX_ROWS`) now caps every
-speculative pass at that boundary for the `dflash2` and `mtp2` profiles, and
-`diagnostics/dflash_parity/isolate_verifier.py --widths` sweeps the row count. AR
-remains the selected profile until the sweep and the 128-token controls are rerun on
-Node B.
+The [native parity report](../../docs/ornith122-native-parity-fix-20261102.md) describes
+candidate fixes for MoE scratch sizing, ROCm group-16 attention and the wide head, with
+their measured scope, bounded sampling check and candidate serving smoke. The earlier hypothesis that a cap of eight
+verification rows alone ensures parity was falsified. `VERIFY_ROWS` remains a scheduling
+control. The repository template prepares DFlash2 as the default with AR available as a
+fallback. The tested live candidate uses DFlash2; the durable installation has not yet
+been validated.
 
 ## CPU regression checks
 
@@ -62,17 +62,19 @@ per round. `restart` keeps fleet environment settings in scope.
 
 ## Validation and limits
 
-Node B checks passed 99 targeted kernel tests, 15 repetition-guard tests, the adapter
+The earlier v5 review passed 99 targeted kernel tests, 15 repetition-guard tests, the adapter
 regressions and live HTTP checks in AR, MTP2 and DFlash2. All 28 main-checkpoint files
 matched pinned local Hub metadata. The auxiliary DFlash checkpoint was not fully
 re-hashed. Node A was not used for model work.
 
-Two-run FP32 probes measured about 23 decode tokens/sec in AR, 31 in MTP2 and 33 in
+Earlier v5 two-run FP32 probes measured about 23 decode tokens/sec in AR, 31 in MTP2 and 33 in
 DFlash2 with NDT=2; AR 8k prefill was about 568 tokens/sec. These are exploratory
 measurements under Node B's existing 90W profile and desktop background load.
-MTP2 and DFlash still changed reference token choices, and larger prefill chunks
-changed the long-context control, so they remain explicit options. FP32 state does
-not establish BF16 equivalence. The full 262144-token capacity was not re-evaluated.
+Those earlier speculative paths changed reference token choices; they predate the parity
+candidate. Larger prefill chunks changed the long-context control and remain explicit
+options. FP32 state does not establish BF16 equivalence. The candidate allocated a
+262144-token cache, but its longest tested prompt was 30478 tokens and its longest tested
+complete sequence was about 38300 tokens; this is not a full-context quality test.
 
 The adapter is text-only. Native XML closing delimiters remain reserved. The model
 still makes coding/layout mistakes: a complete page passed syntax checks but failed
@@ -80,3 +82,16 @@ browser rendering; a targeted model-generated edit repaired it through native to
 history. Rendering then worked, with poor camera framing. This is not a guarantee
 of acceptable visual design. Captured private requests and large debug tensors are
 not part of this package.
+
+To check the opt-in head reduction against per-row autoregressive calls using
+synthetic inputs and only the checkpoint's head weights, run on the target ROCm
+system with the intended extension installed:
+
+```bash
+EXL3_HEAD_AR_PARITY=1 python serving/ornith122/diagnostics/dflash_parity/head_row_parity.py \
+  --model /path/to/Ornith-checkpoint --output /new/head-row-parity.json
+```
+
+The report records the extension hash, routes when tracing is available, and
+bitwise comparisons for widths 1–8. An unset or zero flag can be used to
+measure the original path; mismatches produce a nonzero exit.

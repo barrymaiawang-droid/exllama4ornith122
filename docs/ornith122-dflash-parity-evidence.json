@@ -1,0 +1,74 @@
+{
+  "description": "Bounded Ornith-1.5-122B DFlash parity evidence on Node B; no prompt text or generated token IDs.",
+  "greedy": {
+    "context_capacity": 262144,
+    "max_new_tokens": 32768,
+    "verification_rows": 8,
+    "cases": {
+      "first": {
+        "visible_tokens": 8630,
+        "matches_ar_reference": true,
+        "first_divergence": null,
+        "rejected_draft_tokens": 6017,
+        "head_checks": 3,
+        "all_head_checks_bitwise_equal": true
+      },
+      "final": {
+        "visible_tokens": 7822,
+        "matches_ar_reference": true,
+        "first_divergence": null,
+        "rejected_draft_tokens": 3521,
+        "head_checks": 3,
+        "all_head_checks_bitwise_equal": true
+      }
+    }
+  },
+  "sampling": {
+    "context_capacity": 262144,
+    "tokens_per_run": 128,
+    "repeats_per_mode": 2,
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95,
+    "seed": 123,
+    "cases": {
+      "first_write": {
+        "ar_repeat_exact": true,
+        "df_repeats_match_ar": [
+          true,
+          true
+        ],
+        "rejected_draft_tokens": [
+          120,
+          120
+        ],
+        "forced_positions": 32,
+        "forced_logit_bitwise_equal_rows": 32,
+        "forced_logit_max_abs_delta": 0.0,
+        "forced_tv_max": 0.0
+      },
+      "final_write": {
+        "ar_repeat_exact": true,
+        "df_repeats_match_ar": [
+          true,
+          true
+        ],
+        "rejected_draft_tokens": [
+          32,
+          32
+        ],
+        "forced_positions": 32,
+        "forced_logit_bitwise_equal_rows": 32,
+        "forced_logit_max_abs_delta": 0.0,
+        "forced_tv_max": 0.0
+      }
+    },
+    "failure_count": 0
+  },
+  "provenance": {
+    "extension_sha256": "dd490fab5b42448aafc6b2d4390b7c45d921f034c1d4f2a2e2153e3f6a460bf7",
+    "source_git_head": "806a103c2d4cd1d5935c192208b4031ff67faac5",
+    "tracked_diff_sha256": "42c5c680491efcce25271028eab671433d158a85adef74cbbfdaabe077f7bfb4"
+  },
+  "limitations": "These are bounded checks on two prompts and one sampling seed; they do not prove parity for all prompts, sampling parameters, seeds or deployment configurations."
+}

@@ -2,7 +2,7 @@
 # Ornith-1.5-122B EXL3 on Node B. v5 serving fixes, 2026-11-02.
 # Preserves native tool definitions and payload bytes, reads model sampling
 # defaults, honors fleet controls, and cancels abandoned prefill at a chunk boundary.
-# AR is the quality default; PROFILE=MTP2 / SPEC=mtp2 enables faster speculation.
+# DFlash2 is the tested template default; PROFILE=AR / SPEC=ar selects the AR fallback.
 # All modes use FP16 router projection and FP32 recurrent state by default.
 # Usage: start | restart | stop | kill | status | logs | dry-run.
 set -u
@@ -10,7 +10,7 @@ NAME=${NAME:-ornith122df}
 PORT=${PORT:-18161}
 HOST=${HOST:-0.0.0.0}
 SPEC_FILE=${SPEC_FILE:-$HOME/.ornith122-spec}
-# Priority: SPEC env > llmfleet PROFILE > ~/.ornith122-spec > ar
+# Priority: SPEC env > llmfleet PROFILE > ~/.ornith122-spec > dflash2
 if [ -z "${SPEC:-}" ] && [ -n "${PROFILE:-}" ]; then
   case "$PROFILE" in
     DFlash2|dflash2|DFLASH2) SPEC=dflash2 ;;
@@ -18,23 +18,25 @@ if [ -z "${SPEC:-}" ] && [ -n "${PROFILE:-}" ]; then
     AR|ar)                   SPEC=ar ;;
   esac
 fi
-SPEC=${SPEC:-$([ -f "$SPEC_FILE" ] && cat "$SPEC_FILE" || echo ar)}
+SPEC=${SPEC:-$([ -f "$SPEC_FILE" ] && cat "$SPEC_FILE" || echo dflash2)}
 CTX=${CTX:-262144}
-# DFlash2 proposes a fixed block; NDT caps the target verification window through
-# EXL3_DRAFT_TOKENS. Matched 2k/192-token runs: depth 15 median 24.0 tok/s,
-# depth 2 median 30.6 tok/s. MTP2 uses its own --draft argument.
+# DFlash2 proposes a fixed block; NDT caps draft tokens via EXL3_DRAFT_TOKENS.
+# VERIFY_ROWS below further caps target verification rows, including the input token.
+# See docs/ornith122-native-parity-fix-20261102.md for current measurements.
+# MTP2 uses its own --draft argument.
 NDT=${NDT:-15}
 # VERIFY_ROWS caps the rows of every speculative verification pass (EXL3_DRAFT_MAX_ROWS,
-# counting the input token: window = VERIFY_ROWS - 1 for one stream). 8 is the widest
-# pass that stays on the RDNA tiers whose per-row arithmetic is AR decoding's (multi-row
-# GEMV, fused MoE decode, router GEMV); the 2 November parity handoff shows a 16-row pass
-# flipping a greedy token that AR and a 2-row pass keep. NDT above VERIFY_ROWS-1 only
-# changes what the drafter proposes, not what is verified. 0 removes the cap.
+# counting the input token: window = VERIFY_ROWS - 1 for one stream). This cap is a
+# scheduling limit, not a parity guarantee: the baseline also diverged at 4 and 8 rows.
+# See docs/ornith122-native-parity-fix-20261102.md. NDT above VERIFY_ROWS-1 only changes
+# what the drafter proposes, not what is verified. 0 removes the cap.
 VERIFY_ROWS=${VERIFY_ROWS:-8}
 export PREFILL_CHUNK=${PREFILL_CHUNK:-2048}
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 export MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
 export RECURRENT_STATE_DTYPE=${RECURRENT_STATE_DTYPE:-fp32}
+# Use the tested single-row reduction order for the supported multi-row Ornith head.
+export EXL3_HEAD_AR_PARITY=${EXL3_HEAD_AR_PARITY:-1}
 # Repetition guard, fleet default for requests that never mention the field (see the BUNDLE
 # note above): 1 = the engine defaults, shadow = detect and log only, 0 = off (v2 behaviour),
 # or a JSON object of options. Item 22 runs guarded; a client can still override per request
@@ -42,8 +44,8 @@ export RECURRENT_STATE_DTYPE=${RECURRENT_STATE_DTYPE:-fp32}
 GUARD=${GUARD:-1}
 SERVED_NAME=${SERVED_NAME:-ornith-1.5-122b-exl3}
 ROOT=${ROOT:-/home/hycris/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1}
-SRC=${SRC:-$ROOT/source}
-ART=${ART:-$ROOT/artifacts/repguard-build1}
+SRC=${SRC:-$ROOT/source-native-parity-20261102}
+ART=${ART:-$ROOT/artifacts/terra-native-parity-release-20261102}
 BUNDLE=${BUNDLE:-$ROOT/serving-quality-v5/bundle}
 ENV_SCRIPT=${ENV_SCRIPT:-/home/hycris/x3-exp/b-native-candidate-prep-20261026-kqFr1i/bundle/env-b.sh}
 ENV_SHA=${ENV_SHA:-a0311ff48b90739958dbbb67f7ae7a473fa1c6b3d16e78adc3347732388b54eb}

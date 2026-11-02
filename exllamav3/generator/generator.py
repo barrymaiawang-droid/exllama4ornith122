@@ -156,12 +156,10 @@ class Generator:
             one or two streams; above eight rows it also drops off the fused MoE decode kernel
             (MAX_BSZN), which costs 15-26% rather than the gradual loss the arithmetic alone would
             predict. A ceiling around the fused kernel's row capacity is the safe choice for a sparse MoE
-            (8 for the current MAX_BSZN); dense models can go much wider (32-64) or uncapped. On ROCm the
-            same ceiling of 8 is also the parity choice: 1..8-row verification passes stay on the RDNA tiers
-            whose per-row arithmetic is the single-row decode's (multi-row GEMV, fused MoE decode, router
-            GEMV), while 9..16-row passes move the two-matrix projections to the cooperative WMMA GEMM and
-            the MoE to the fused prefill tier, and their scores drift from AR decoding. EXL3_DRAFT_MAX_ROWS
-            overrides this argument.
+            (8 for the current MAX_BSZN); dense models can go much wider (32-64) or uncapped. On ROCm,
+            row count also changes kernel dispatch and floating-point reduction order; a ceiling alone does
+            not guarantee identical scores to autoregressive decoding. Validate the chosen model, context,
+            and settings. EXL3_DRAFT_MAX_ROWS overrides this argument.
 
         :param dynamic_draft_tokens:
             Adapt the per-round draft length to the workload. The draft is cut using a drafter-provided
@@ -1698,6 +1696,9 @@ class Generator:
             "positions": positions,
             "recurrent_history": draft_tokens is not None,
             "pinned_staging": True,
+            # The staged table width is rounded to this many pages. Decode
+            # attention can use this generator-specific contract per query.
+            "block_table_page_bucket": 16,
         }
         self._upload_arena(arena, batch_size, max_pages_batch, use_offsets, params)
         if self.draft_model:

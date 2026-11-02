@@ -1,4 +1,6 @@
-# Ornith122 DFlash token divergence — Claude Code handoff
+# Ornith122 DFlash token divergence — historical handoff
+
+> **Historical document.** The later 9-row boundary hypothesis was falsified: baseline target-only runs also flipped greedy tokens at 4 and 8 rows. See the [current investigation and candidate fixes](ornith122-native-parity-fix-20261102.md). Statements below about an unresolved cause, the expected baseline, and next actions describe the earlier investigation.
 
 Prepared 2 November 2026, Australia/Sydney (AEDT, UTC+11).
 Latest numerical experiment completed at 12:50 AEDT. This is an unresolved
@@ -34,6 +36,8 @@ not establish exact greedy equivalence. In particular, the old int8-router issue
 is not a new explanation: **EXL3_ROUTER_DET=0 was already set in all current tests.**
 
 ## 2 November, later: where the 16-row pass leaves AR arithmetic, and the fix
+
+> **Superseded and falsified.** The prediction below that an eight-row cap alone preserves greedy tokens did not hold: baseline target-only runs also flipped tokens at four and eight rows. The explanation and expected results in this section are retained as historical investigation, not current guidance. See the [current parity report](ornith122-native-parity-fix-20261102.md).
 
 Added after the handoff above, from source reading of the pinned native baseline
 (`67681612de24c8772319144b0dd9b7a41177fb22`, `exllamav3/` unchanged since) and the

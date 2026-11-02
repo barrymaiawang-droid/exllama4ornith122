@@ -832,13 +832,27 @@ bool exl3_gemv_multirow_try_launch
     // 2. GEMV, M rows per warp, fused output epilogue
     {
         const int n_tiles = size_n / 16;
-        const int warps = exl3_gemv_mr_warps(size_k, n_tiles, 1);
         const int core = exl3_gemv_core_mode();
+        // Match the single-row wide head's unsplit K reduction for the tested
+        // Ornith geometry. Other cores and graph capture keep their usual path.
+        const char* parity_env = std::getenv("EXL3_HEAD_AR_PARITY");
+        const bool head_ar_parity = parity_env && atoi(parity_env) == 1 &&
+            size_m >= 2 && size_m <= 8 && size_k == 3072 && size_n == 248320 &&
+            K == 6 && cb == 2 && !c_fp32 && graph == nullptr &&
+            core == EXL3_GEMV_CORE_TILES;
+        const int warps = head_ar_parity ? 1 : exl3_gemv_mr_warps(size_k, n_tiles, 1);
         const int tpb = exl3_gemv_tiles_tpb(core, device, n_tiles, 1, warps);
         dim3 grid(n_tiles / tpb, 1, row_groups);
         dim3 block(warps * 32);
         size_t smem = exl3_gemv_mr_smem_bytes(warps, m_tile);
-        LAUNCH_MR(exl3_gemv_mr_dot_single, pb, size_k, size_n, size_m, core, tpb)
+        if (head_ar_parity)
+        {
+            LAUNCH_MR_W(6, 2, 1, exl3_gemv_mr_dot_single, pb, size_k, size_n, size_m, core, tpb)
+        }
+        else
+        {
+            LAUNCH_MR(exl3_gemv_mr_dot_single, pb, size_k, size_n, size_m, core, tpb)
+        }
     }
     return true;
 }

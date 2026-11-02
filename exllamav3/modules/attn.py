@@ -979,7 +979,8 @@ class Attention(Module):
             return None
         return bca.step(
             x, cache_seqlens, block_table, position, positions, position_ids, inv_freq,
-            causal = params.get("causal", True), host_seqlens = host_seqlens
+            causal = params.get("causal", True), host_seqlens = host_seqlens,
+            page_bucket = params.get("block_table_page_bucket", 0),
         )
 
 
@@ -1204,6 +1205,7 @@ class Attention(Module):
                 dispatch_cache = self.dispatch_cache,
                 max_kv_len = max_kv_len,
                 staging_pages = staging_pages,
+                block_table_page_bucket = params.get("block_table_page_bucket", 0) if self.qsa_indexer is None else 0,
             )
 
         if self.headwise_gate:

@@ -32,6 +32,8 @@ class AttnArgs(NamedTuple):
     staging_pages: int | None = None    # pages the quantized-cache prefill staging scratch is sized to
                                         # (a per-layer constant: the pool, or QSA's bounded window)
 
+    block_table_page_bucket: int = 0
+
     def sanity_check(self):
         # Cache must be paged
         if self.q_cache is not None:

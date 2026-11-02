@@ -100,6 +100,7 @@ def attn_dispatch(
     dispatch_cache: dict | None = None,
     max_kv_len: int | None = None,
     staging_pages: int | None = None,
+    block_table_page_bucket: int = 0,
 ):
     """
     Select and run the first compatible attention implementation for the supplied tensors.
@@ -158,6 +159,7 @@ def attn_dispatch(
         window_right = window_right,
         sink_key0 = sink_key0,
         staging_pages = staging_pages,
+        block_table_page_bucket = block_table_page_bucket,
     )
     # Quant-direct calls select among the qc-aware backends only; a separate hint slot keeps a function that
     # won a cache-less or fp16-cache call from being retried on quant-direct arguments (it cannot see q_cache
