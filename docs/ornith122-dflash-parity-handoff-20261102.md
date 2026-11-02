@@ -33,6 +33,120 @@ speed claims are not current acceptance evidence. Passing that old tolerance doe
 not establish exact greedy equivalence. In particular, the old int8-router issue
 is not a new explanation: **EXL3_ROUTER_DET=0 was already set in all current tests.**
 
+## 2 November, later: where the 16-row pass leaves AR arithmetic, and the fix
+
+Added after the handoff above, from source reading of the pinned native baseline
+(`67681612de24c8772319144b0dd9b7a41177fb22`, `exllamav3/` unchanged since) and the
+published measurements. No GPU run was made for this section; its prediction is
+stated so the next Node B run can confirm or refute it in one sweep.
+
+### Mechanism: a kernel-tier boundary at 9 verification rows
+
+On this ROCm/gfx1151 build, a verification pass of `bsz * (1 + proposals)` rows selects
+its kernels by row count. Every tier that serves 1..8 rows reproduces the single-row
+(AR decode) arithmetic per row; several tiers that serve 9..16 rows do not:
+
+| Operator | 1..8 rows | 9..16 rows |
+| --- | --- | --- |
+| Single-matrix EXL3 projections (q, o, GDN qkv/z, head) | RDNA multi-row fdot2 GEMV, route 92 (`rocm/quant/exl3_gemv_multirow_rdna.cu`; AR m=1 wide head takes route 90) | same GEMV as two 8-row groups (row arithmetic unchanged) |
+| Two-matrix bundles: shared-expert gate/up, attention k/v (`MultiLinear`) | multi-row mgemv, route 93, rows keep the m=1 chain | **cooperative WMMA mgemm, route 2** (`quant/exl3_gemm.cu` falls through when `size_m > EXL3_MGEMV_MAX_M`, default 8) |
+| Routed experts (`BlockSparseMLP.forward`) | fused decode tier `BC_BlockSparseMLP.run_bszN` -> `exl3_rocm_moe_decode` (`bszn_eligible = bsz <= MAX_BSZN`, `MAX_BSZN = 8`), shared expert merged inside | **fused prefill tier**: argsort/bincount plan, `exl3_moe` tiled kernels, `FUSED_DET` slot gather; shared expert projected separately through `GatedMLP.forward` (the two-matrix path above) and merged by `add_sigmoid_gate_proj` |
+| Router logits | RDNA router GEMV, m=1..16, per-row FMA chain identical to AR (`EXL3_ROUTER_DET=0`, `rocm/routing_gemv_rdna.cuh`) | same (two 8-row launches) |
+| GDN conv + recurrent scan | fused `BC_GatedDeltaNetSplit` pass; `SCAN_SPEC` reads the base row, writes the scratch row, fp32 state, per-token arithmetic independent of `seqlen` (`gdn.cu` `scan_body`) | same kernel, `seqlen` 16 |
+| Full-accept settlement | `GDNState.rewind(0)`: conv tail copied to the committed window, parity flipped, no replay (`last_history > 0`, `num_tokens = 0`) | same |
+
+The 2 November oracle runs sit on opposite sides of this boundary: `oracle_block2`
+(2 rows) and `oracle_block16` (16 rows). The published numbers match the table:
+
+| Run | Rows | Tier family | Mean KL vs AR | Max abs logit delta | Argmax flips in 32 |
+| --- | ---: | --- | ---: | ---: | --- |
+| `ar32_repeat` | 1 | AR | 0 | 0 | none (bitwise) |
+| `oracle_block2` | 2 | AR-identical tiers | 1.6e-7 | 0.0625 | none |
+| `oracle_block16` | 16 | WMMA mgemm + fused prefill MoE | 1.9e-3 | 5.56 | position 17 |
+
+Ten thousand-fold more divergence at 16 rows than at 2 is what a change of kernel
+family predicts, not what a change of block length within one family would give. The
+residual 2-row difference (route 90 vs 92 on the wide head; attention at `q_len` 2) is
+real but at the level of fp16 output rounding. The amplifier is the MoE: once the
+normalized hidden state entering a router differs at all, a near-tie expert pick can
+flip, and a flipped expert changes that token's residual by far more than any
+rounding, which is why the deltas are large and sparse while most top tokens survive.
+The flip at 17 is on a 0.117-logit AR margin, the earlier serving `NDT=2` divergence at
+token 27 was on a 0.031 margin: both are near-ties being settled by a different
+summation, not a wrong operation.
+
+Checked and cleared while reading: the GDN scan has no `seqlen`-dependent reduction
+(the state slice stays in registers; the `SUBK` partials are reduced in fixed order);
+the conv history write and `rewind(0)` tail copy reproduce the in-place update for
+`K + seqlen` inputs; the cooperative kernel's fp16 accumulators (`EXL3_GEMM_H_ACC`) are
+compiled only for `sm_86`, so they are not the ROCm mechanism; the router projection is
+on the same fp16 GEMV chain at every row count in these runs. The repository already
+states the boundary in `doc/env_vars.md` under `EXL3_DRAFT_TOKENS` ("8 verify rows is the
+widest window that keeps the MoE, the two-matrix GEMV and the router on their
+weight-once, AR-identical tiers") and in the `draft_max_rows` docstring; the deployed
+DFlash2 profile nevertheless verified 16 rows (`NDT=15`), and all three published
+flips came from 16-row passes.
+
+**Not established by this section:** that the 9..16-row tiers are less faithful to a
+high-precision reference than the GEMV tiers (they may well be closer: the question of
+which side is "right" is still open, and the handoff's reference comparison still
+applies); that 8-row passes are bit-identical to AR (they are not: wide head route and
+attention `q_len` differ, and near-ties under ~0.03 logits can still flip); the exact
+operator that first moves the position-17 margin.
+
+### Prediction for the next Node B run
+
+With the runner's new `--widths 1,3,7,8,15` (rows 2, 4, 8, 9, 16), argmax flips and
+KL should stay at the `oracle_block2` level through 8 rows and jump at 9 rows.
+`EXL3_MGEMV_MAX_M=16` moves the two-matrix projections back to the GEMV tier at 9..16
+rows; the MoE prefill tier and the separately projected shared expert remain, so that
+flag alone should remove part, not all, of the 16-row divergence. If the jump does not
+track 9 rows, this section's mechanism is wrong and the handoff's experiment 2
+(settlement) regains priority.
+
+### What was changed (this commit)
+
+- `Generator`: `EXL3_DRAFT_MAX_ROWS` overrides `draft_max_rows`, the existing ceiling on
+  verification rows per round (`bsz * (1 + window)`), so a frozen launcher can hold
+  every speculative round inside the 8-row tier family without knowing the batch.
+  With one stream and a block-16 drafter the verified window becomes 7 proposals.
+  `tests/generator/test_draft_row_ceiling.py` pins the arithmetic (CPU, stubs).
+- Node B launcher: `VERIFY_ROWS` (default 8, `0` removes the cap) exports
+  `EXL3_DRAFT_MAX_ROWS` for the `dflash2` and `mtp2` profiles; `ar` is untouched and
+  remains the selected profile. `NDT` still sets what the drafter proposes.
+- Runner `isolate_verifier.py`: `--widths` sweeps proposal counts in one process
+  (default `15,1` reproduces the published runs), `--new-tokens`, `--no-repeat`;
+  `provenance.json` records imported module paths, source Git SHA, extension SHA256,
+  Torch and every tier flag (`EXL3_MGEMV_MAX_M`, `EXL3_ROUTER_DET`, ...); comparisons
+  add per-position KL and deltas, the AR top-two margin at each flip and a bitwise
+  flag (`parity_compare.py`, covered by
+  `serving/ornith122/tests/test_dflash_parity_compare.py`). The executed `run()` body
+  differs from the published version only in taking the token count from
+  `--new-tokens` and allowing a short final block when the count is not a multiple of
+  the row count; `runs.json` records each pass's width. The new runner has not had a
+  GPU run.
+- `doc/env_vars.md`: `EXL3_DRAFT_MAX_ROWS`.
+
+Not changed: native kernels, the adapter (`ornith_serve.py` keeps its pinned hash), the
+selected profile file, any default of the `Generator` itself.
+
+### Validation to run on Node B (within an allocation)
+
+1. Baseline sweep on the pinned source, same command as "Reproduce the numerical
+   failure" with `--widths 1,3,7,8,15 --new-tokens 72 --assert-greedy-parity`
+   (72 is a multiple of 2, 4, 8 and 9 rows; the 16-row run then ends with one 8-row
+   block, recorded in `runs.json`). Expected: exit 1 from the 9- and 16-row runs only.
+2. The same sweep with `EXL3_MGEMV_MAX_M=16`, then with `EXL3_BC_GDN=0` as a control
+   for the GDN graph path; keep every other flag fixed and compare `sweep.json` tables.
+3. The real DFlash2 128-token controls (`first_write`, `final_write`) with
+   `VERIFY_ROWS=8` through the launcher, then the serving regressions, then speed under
+   matched, uncontended conditions against AR and against `NDT=15`. The perf-headroom
+   study's measured round costs (1 row 60 ms, 9 rows 278 ms, 16 rows 367 ms) and its
+   matched runs (depth 15 median 24 tok/s, depth 2 median 31 tok/s) suggest the 8-row
+   cap costs little or nothing in throughput, but that is to be measured, not assumed.
+4. Only after 1..3: decide whether `dflash2` with `VERIFY_ROWS=8` replaces `ar` as the
+   selected profile. Keep `ar` selected until then.
+
 ## Access, ownership and stopping conditions
 
 - Use **Node B only, until 3 November 2026 at 09:00 AEDT** (2 November 22:00 UTC).

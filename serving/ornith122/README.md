@@ -11,9 +11,16 @@ one CPU math thread and 2048-token prefill chunks. Native engine baseline:
 The adapter is byte-identical to the reviewed v5 deployment.
 
 The [2 November DFlash parity handoff](../../docs/ornith122-dflash-parity-handoff-20261102.md)
-records the unresolved native token divergence, a target-only reproduction without
-rejected drafts, measured results and the next diagnostic steps. AR remains the
-deployed default; no numerical fix is claimed by that handoff.
+records the native token divergence, a target-only reproduction without rejected
+drafts, measured results and the next diagnostic steps. Its later section traces the
+divergence to a kernel-tier boundary: verification passes of up to 8 rows stay on the
+RDNA tiers whose per-row arithmetic is AR decoding's, while the deployed 16-row DFlash2
+passes (`NDT=15`) fall to the cooperative WMMA mgemm and the fused prefill MoE tier.
+The launcher's `VERIFY_ROWS` (default 8, `EXL3_DRAFT_MAX_ROWS`) now caps every
+speculative pass at that boundary for the `dflash2` and `mtp2` profiles, and
+`diagnostics/dflash_parity/isolate_verifier.py --widths` sweeps the row count. AR
+remains the selected profile until the sweep and the 128-token controls are rerun on
+Node B.
 
 ## CPU regression checks
 
@@ -25,7 +32,9 @@ python serving/ornith122/tests/test_tool_streaming.py
 python serving/ornith122/tests/test_repetition_guard_http.py
 ```
 
-The 15 unit tests and 3000 randomized streaming cases need no GPU or model weights.
+The 22 unit tests need no GPU or model weights (the seven parity-comparison tests skip
+without torch). The 3000 randomized streaming cases read their corpus from the Node B
+home directories and only run there.
 The real native template is pinned in the fixtures; set `ORNITH_MODEL_DIR` to exercise
 another local checkpoint's template. The HTML fixtures check exact file preservation.
 
@@ -47,8 +56,9 @@ The model's generation configuration supplies default temperature/top-k/top-p.
 `deploy/node-b/` records the reviewed machine-specific launcher, selected profile and
 validation notes. Its absolute runtime/build paths are intentional deployment values;
 it is not a portable installer. The launcher honors `PROFILE`, `CTX`, `REASONING`,
-`RBUDGET`, `PREFILL_CHUNK` and `RECURRENT_STATE_DTYPE`. DFlash's `NDT` override reaches
-the native verification window. `restart` keeps fleet environment settings in scope.
+`RBUDGET`, `PREFILL_CHUNK`, `RECURRENT_STATE_DTYPE` and `VERIFY_ROWS`. DFlash's `NDT`
+override sets what the drafter proposes; `VERIFY_ROWS` bounds what the target verifies
+per round. `restart` keeps fleet environment settings in scope.
 
 ## Validation and limits
 
