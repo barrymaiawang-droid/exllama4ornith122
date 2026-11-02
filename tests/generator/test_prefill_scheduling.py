@@ -43,6 +43,8 @@ def make_generator(jobs, shared_chunk_size = 2048, prefill_cooldown = 0):
     g.dflash_draft = False
     g.mtp_draft = False
     g.ngram_match_min = 0
+    g.num_draft_tokens = 0
+    g.draft_max_rows = 0
     g.hybrid_draft_tokens = 0
     g.visualizer = None
     g.disk_page_cache = None

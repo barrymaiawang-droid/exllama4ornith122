@@ -24,6 +24,13 @@ CTX=${CTX:-262144}
 # EXL3_DRAFT_TOKENS. Matched 2k/192-token runs: depth 15 median 24.0 tok/s,
 # depth 2 median 30.6 tok/s. MTP2 uses its own --draft argument.
 NDT=${NDT:-15}
+# VERIFY_ROWS caps the rows of every speculative verification pass (EXL3_DRAFT_MAX_ROWS,
+# counting the input token: window = VERIFY_ROWS - 1 for one stream). 8 is the widest
+# pass that stays on the RDNA tiers whose per-row arithmetic is AR decoding's (multi-row
+# GEMV, fused MoE decode, router GEMV); the 2 November parity handoff shows a 16-row pass
+# flipping a greedy token that AR and a 2-row pass keep. NDT above VERIFY_ROWS-1 only
+# changes what the drafter proposes, not what is verified. 0 removes the cap.
+VERIFY_ROWS=${VERIFY_ROWS:-8}
 export PREFILL_CHUNK=${PREFILL_CHUNK:-2048}
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 export MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
@@ -64,6 +71,7 @@ case "${1:-start}" in
       [ -f "$DRAFT_DIR/config.json" ] || { echo "missing drafter: $DRAFT_DIR" >&2; exit 2; }
       [[ "$NDT" =~ ^([1-9]|1[0-5])$ ]] || { echo "NDT must be 1..15" >&2; exit 4; }
     fi
+    [[ "$VERIFY_ROWS" =~ ^([0-9]|1[0-6])$ ]] || { echo "VERIFY_ROWS must be 0..16" >&2; exit 4; }
     [ "$(sha256sum "$ENV_SCRIPT" | cut -d' ' -f1)" = "$ENV_SHA" ] || { echo "env script sha drift" >&2; exit 6; }
     port_busy && { echo "port $PORT already in use" >&2; exit 3; }
     case "$SPEC" in
@@ -83,6 +91,11 @@ case "${1:-start}" in
       else
         unset EXL3_DRAFT_TOKENS
       fi
+      if [ "'"$SPEC"'" = ar ] || [ "'"$VERIFY_ROWS"'" = 0 ]; then
+        unset EXL3_DRAFT_MAX_ROWS
+      else
+        export EXL3_DRAFT_MAX_ROWS="'"$VERIFY_ROWS"'"
+      fi
       export PYTHONDONTWRITEBYTECODE=1
       export FORK="'"$SRC"'"
       export PYTHONPATH="$FORK:'"$ART"':'"$BUNDLE"'"
@@ -93,7 +106,7 @@ case "${1:-start}" in
         --served-name "'"$SERVED_NAME"'"
     ' _ "$ENV_SCRIPT" >> "$LOG" 2>&1 < /dev/null &
     echo $! > "$PIDFILE"
-    echo "started $NAME on :$PORT (pid $(cat "$PIDFILE")) ctx=$CTX spec=$SPEC router_det=$ROUTER_DET log=$LOG"
+    echo "started $NAME on :$PORT (pid $(cat "$PIDFILE")) ctx=$CTX spec=$SPEC router_det=$ROUTER_DET verify_rows=$VERIFY_ROWS log=$LOG"
     ;;
   stop)
     if pid=$(managed_pid); then
@@ -123,8 +136,8 @@ case "${1:-start}" in
     esac
     router=0
     ( . "$ENV_SCRIPT" >/dev/null 2>&1
-      printf 'PY=%s spec=%s port=%s router_det=%s ndt=%s chunk=%s threads=%s state=%s mode_args=%s\n' \
-        "$(command -v python)" "$SPEC" "$PORT" "$router" "$NDT" "$PREFILL_CHUNK" "$OMP_NUM_THREADS" "$RECURRENT_STATE_DTYPE" "$mode"
+      printf 'PY=%s spec=%s port=%s router_det=%s ndt=%s verify_rows=%s chunk=%s threads=%s state=%s mode_args=%s\n' \
+        "$(command -v python)" "$SPEC" "$PORT" "$router" "$NDT" "$VERIFY_ROWS" "$PREFILL_CHUNK" "$OMP_NUM_THREADS" "$RECURRENT_STATE_DTYPE" "$mode"
     ) ;;
   *) echo "usage: $0 [start|stop|kill|status|logs|dry-run]" >&2; exit 1 ;;
 esac

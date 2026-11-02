@@ -383,6 +383,18 @@ widens the set of distinct experts read, so shallow windows can be faster than t
 8 verify rows (`EXL3_DRAFT_TOKENS=7`) is the widest window that keeps the MoE (`MAX_BSZN`), the two-matrix GEMV
 (`EXL3_MGEMV_MAX_M`) and the router on their weight-once, AR-identical tiers.
 
+### `EXL3_DRAFT_MAX_ROWS` (default: unset)
+
+Overrides `draft_max_rows`, the ceiling on verification rows per round (`bsz * (1 + draft tokens)`; `0`
+disables it). Unlike `EXL3_DRAFT_TOKENS` it is stated in rows, so it holds as the batch grows: with a
+ceiling of 8, one stream verifies 7 draft tokens, two streams 3, four streams 1. On ROCm, 8 is the parity
+ceiling: 1..8-row passes stay on the tiers whose per-row arithmetic is the single-row decode's (the multi-row
+GEMV, the fused MoE decode kernel at `MAX_BSZN`, the router GEMV), and 9..16-row passes leave them (the
+two-matrix projections fall to the cooperative WMMA mgemm unless `EXL3_MGEMV_MAX_M=16`, the MoE to the fused
+prefill tier with a separately projected shared expert). The Ornith-122B parity handoff
+(`docs/ornith122-dflash-parity-handoff-20261102.md`) records a 16-row verification pass flipping a greedy
+token that a 2-row pass and plain decoding both keep.
+
 ### `EXL3_DYNAMIC_DRAFT` (default: unset)
 
 `1` / `0` overrides `dynamic_draft_tokens`: cut each round's verify window at the first draft position whose
