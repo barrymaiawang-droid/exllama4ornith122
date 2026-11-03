@@ -174,7 +174,7 @@ ROCm (regresses AR), ndt=15 (net loss vs ndt=8).
 
 ## 8. Harnesses
 
-`/home/hycris/work/{ornith-bench-live,prof_ornith,decode_sweep,depth_curve,route_probe}.py`
+`~/work/{ornith-bench-live,prof_ornith,decode_sweep,depth_curve,route_probe}.py`
 - all take the pinned tree via `PYTHONPATH=$FORK:$ART:$BUNDLE` and
 
 ## 9. Device-side kernel breakdown (the decisive data)

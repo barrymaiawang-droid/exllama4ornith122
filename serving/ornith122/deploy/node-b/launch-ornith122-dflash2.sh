@@ -43,14 +43,14 @@ export EXL3_HEAD_AR_PARITY=${EXL3_HEAD_AR_PARITY:-1}
 # with repetition_guard, including an explicit false to switch it off for that call.
 GUARD=${GUARD:-1}
 SERVED_NAME=${SERVED_NAME:-ornith-1.5-122b-exl3}
-ROOT=${ROOT:-/home/hycris/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1}
+ROOT=${ROOT:-$HOME/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1}
 SRC=${SRC:-$ROOT/source-native-parity-20261102}
 ART=${ART:-$ROOT/artifacts/terra-native-parity-release-20261102}
 BUNDLE=${BUNDLE:-$ROOT/serving-quality-v5/bundle}
-ENV_SCRIPT=${ENV_SCRIPT:-/home/hycris/x3-exp/b-native-candidate-prep-20261026-kqFr1i/bundle/env-b.sh}
+ENV_SCRIPT=${ENV_SCRIPT:-$HOME/x3-exp/b-native-candidate-prep-20261026-kqFr1i/bundle/env-b.sh}
 ENV_SHA=${ENV_SHA:-a0311ff48b90739958dbbb67f7ae7a473fa1c6b3d16e78adc3347732388b54eb}
-MODEL_DIR=${MODEL_DIR:-/home/hycris/models/Ornith-1.5-122B-EXL3-EAQv1-4-bpw}
-DRAFT_DIR=${DRAFT_DIR:-/home/hycris/models/Ornith-1.5-122B-DFlash2}
+MODEL_DIR=${MODEL_DIR:-$HOME/models/Ornith-1.5-122B-EXL3-EAQv1-4-bpw}
+DRAFT_DIR=${DRAFT_DIR:-$HOME/models/Ornith-1.5-122B-DFlash2}
 LOG=${LOG:-$HOME/ornith122-dflash2.log}
 PIDFILE=${PIDFILE:-$HOME/ornith122-dflash2.pid}
 port_busy() { ss -ltn 2>/dev/null | grep -q ":$PORT "; }

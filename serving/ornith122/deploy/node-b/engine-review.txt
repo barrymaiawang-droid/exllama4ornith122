@@ -64,8 +64,8 @@ show floating-point differences from AR. The adapter is text-only and rejects
 image parts explicitly. The native XML format reserves its closing delimiters.
 The full 262144-token limit and an independent BF16 model were not re-evaluated.
 
-Runtime: /home/hycris/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1/serving-quality-v5
-Rollback snapshot: /home/hycris/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1/rollbacks/20261102-serving-v5
+Runtime: ~/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1/serving-quality-v5
+Rollback snapshot: ~/x3-exp/b-baseline-delivery-20261026/dflash2-opt-20261027-h1aSJ2/claude-fix-test-v1/rollbacks/20261102-serving-v5
 The former v4 bundle and the compiled repguard-build1 artifact remain available.
 Restore launcher-before.sh, restore ~/.ornith122-spec from spec-before.txt,
 and restore only the ornith122df entry from

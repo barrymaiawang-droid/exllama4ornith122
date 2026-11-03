@@ -161,7 +161,8 @@ selected profile file, any default of the `Generator` itself.
   earlier exception allowed Git push only to its fleet Git server. No Node A
   access is needed for this GitHub handoff.
 - All model experiments so far used the local Node B host. Its existing launcher
-  guard identifies the local interface as `10.55.0.2/24`. Confirm machine identity
+  guard identifies the local interface by its LAN address (known to the operator; not
+  recorded here). Confirm machine identity
   and available memory before loading. The tested gfx1151 host has about 123 GiB
   unified RAM; the 122B target and cache consume substantial memory.
 - Do not stop other workloads, change power settings or overwrite unrelated work.
@@ -353,7 +354,7 @@ From this repository's root, after setting the path-map variables above:
 
 ```sh
 REPO_ROOT="$(pwd)"
-ip -brief address | rg '10.55.0.2/24'
+ip -brief address   # confirm the expected Node B LAN address (not recorded here)
 free -h
 ss -ltn '( sport = :18161 )'
 # Verify Node B and ensure enough free memory before proceeding.
